@@ -36,12 +36,6 @@ export class Road {
     }
     for (let k = 0; i < n; i++, k++) grade[i] = lerp(prevG, 0, smooth(Math.min(1, k / 16)));
 
-    for (const e of events) {
-      if (e.type !== 'hairpin') continue;
-      const a = Math.floor((e.s - 100) / SEG), b = Math.floor((e.s + 40) / SEG);
-      for (let k = Math.max(0, a); k <= b && k < n; k++) curve[k] += e.dir * 0.2 * Math.sin(((k - a) / (b - a)) * Math.PI);
-    }
-
     let y = 0;
     for (let k = 0; k < n; k++) {
       const y1 = y;
@@ -70,7 +64,7 @@ export class Road {
     const r = rng(seed);
     const n = this.segs.length;
     const bColors = ['#f4a259', '#5b8e7d', '#bc4b51', '#8cb369', '#f4e285', '#6c8ead', '#e07a5f', '#81b29a', '#c9a3d4'];
-    const boards = ['刹车片 特价!', '慢点开!', '1600N?!', 'BRAKE OR BREAK', '修车 找老王', '安全第一'];
+    const boards = ['刹车片 特价!', '自动驾驶 放心睡', '1600N?!', 'BRAKE OR BREAK', '修车 找老王', '遥遥领先'];
     for (let k = 0; k < n; k++) {
       const seg = this.segs[k];
       if (theme === 'city') {
@@ -89,27 +83,15 @@ export class Road {
         if (k % 20 === 10) seg.sprites.push({ kind: 'building', x: -(HW + 18), w: 20, h: 8, color: '#f4e285', seed: k });
         if (k % 33 === 5) seg.sprites.push({ kind: 'billboard', x: HW + 9, text: k % 66 === 5 ? '4S店 · 遥遥领先' : '一千万以内最好的车' });
         if (k % 5 === 2) seg.sprites.push({ kind: 'tree', x: (k % 10 < 5 ? 1 : -1) * (HW + 11), seed: k });
-      } else if (theme === 'park') {
-        if (k % 2 === 0) seg.sprites.push({ kind: 'tree', x: (r() < 0.5 ? -1 : 1) * (HW + 3 + r() * 12), seed: k });
-        if (k % 3 === 1) seg.sprites.push({ kind: 'bush', x: (r() < 0.5 ? -1 : 1) * (HW + 1.6), seed: k });
-        if (k % 8 === 0) seg.sprites.push({ kind: 'lamp', x: HW + 1.3 });
-        if (k % 30 === 15) seg.sprites.push({ kind: 'billboard', x: -(HW + 4), text: '小心鸭子' });
-      } else if (theme === 'mountain') {
-        seg.sprites.push({ kind: 'cliff', x: -HW - 1.5, seed: k });
-        if (k % 2 === 0) seg.sprites.push({ kind: 'rail', x: HW + 0.8 });
-        if (k % 3 === 0) seg.sprites.push({ kind: 'pine', x: HW + 6 + r() * 16, seed: k });
       }
+      // 弯道外侧的导向牌
+      if (Math.abs(seg.curve) > 0.012 && k % 4 === 0) { const d = Math.sign(seg.curve); seg.sprites.push({ kind: 'chevron', x: -d * (HW + 1.0), dir: d }); }
     }
     for (const e of events) {
       if (e.type === 'stop') {
         this.segAt(e.s).decals.push({ s: e.s, kind: e.final ? 'finish' : 'stop' });
-        if (!e.light && !e.final) this.add(e.s - 3, { kind: 'stopsign', x: HW + 1.2 });
-        if (e.final) this.add(e.s - 40, { kind: 'finishsign', x: HW + 1.4 });
-      } else if (e.type === 'hazard' && e.kind === 'ducks') {
-        this.add(e.s - 110, { kind: 'ducksign', x: HW + 1.2 });
-      } else if (e.type === 'hairpin') {
-        this.add(e.s - 170, { kind: 'curvesign', x: HW + 1.2, limit: e.limit, dir: e.dir });
-        for (let d = -50; d <= 10; d += 10) this.add(e.s + d, { kind: 'chevron', x: -e.dir * (HW + 1.0), dir: e.dir });
+        if (!e.final) this.add(e.s - 3, { kind: 'stopsign', x: HW + 1.2 });
+        else this.add(e.s - 40, { kind: 'finishsign', x: HW + 1.4 });
       }
     }
   }

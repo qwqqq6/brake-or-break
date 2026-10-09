@@ -1,72 +1,70 @@
-import type { LeadAction, LeadSpawn } from '../levels';
+import type { LeadSpawn } from '../levels';
 
-/** 前车 AI：按脚本巡航 / 刹车 / 停住 / 并线离开 */
+/**
+ * 前车：并入 → 跟着车流开 → 司机睡着（急减速直到停住）→ 惊醒 → 加速并线离开。
+ * speed 字段是相对玩家自动驾驶巡航速度的比例。
+ */
 export class LeadCar {
   s: number;          // 后保险杠位置
   v: number;
-  target: number;
-  x = 3.6;            // 横向偏移，>0 表示在右侧车道（并入/离开）
+  x = 3.6;            // 横向偏移，>0 表示在右侧车道（并入/离开中）
   kind: 'car' | 'truck';
   color: string;
   braking = false;
-  mode: 'cruise' | 'brake' | 'hold' | 'exit' = 'cruise';
+  mode: 'merge' | 'cruise' | 'sleep' | 'hold' | 'wake' | 'exit' = 'merge';
   gone = false;
-  private actions: LeadAction[];
-  private ai = 0;
+  t = 0;              // 当前模式持续时间
   private startS: number;
-  private exitAfter: number;
-  private decel = 0;
-  private to = 0;
-  private hold = 0;
   private holdT = 0;
-  private merging = true;
 
-  constructor(sp: LeadSpawn, s: number) {
-    this.s = s; this.startS = s;
-    this.v = sp.speed; this.target = sp.speed;
+  constructor(private sp: LeadSpawn, s: number, v: number) {
+    this.s = s; this.startS = s; this.v = v;
     this.kind = sp.kind; this.color = sp.color;
-    this.actions = sp.actions; this.exitAfter = sp.exitAfter;
   }
 
+  /** 在本车道上，可以被追尾 */
   get solid() { return this.x < 2.2; }
+  get asleep() { return this.mode === 'sleep' || this.mode === 'hold'; }
 
-  update(dt: number) {
-    const tr = this.s - this.startS;
-    while (this.ai < this.actions.length && tr >= this.actions[this.ai].at && this.mode !== 'exit') {
-      const a = this.actions[this.ai++];
-      if (a.type === 'cruise') this.target = a.speed;
-      else { this.mode = 'brake'; this.decel = a.decel; this.to = a.to; this.hold = a.hold ?? 1.5; }
-    }
-    if (this.mode !== 'exit' && tr >= this.exitAfter && this.mode === 'cruise') this.mode = 'exit';
+  private set(m: LeadCar['mode']) { this.mode = m; this.t = 0; }
 
+  update(dt: number, cruise: number) {
+    this.t += dt;
+    const target = cruise * this.sp.speed;
     switch (this.mode) {
+      case 'merge':
+        this.braking = false;
+        this.x = Math.max(0, this.x - 2.2 * dt);
+        this.v += Math.sign(target - this.v) * Math.min(Math.abs(target - this.v), 2 * dt);
+        if (this.x === 0) this.set('cruise');
+        break;
       case 'cruise':
         this.braking = false;
-        if (this.v < this.target) this.v = Math.min(this.target, this.v + 2.2 * dt);
-        else this.v = Math.max(this.target, this.v - 1.5 * dt);
+        this.v += Math.sign(target - this.v) * Math.min(Math.abs(target - this.v), 2 * dt);
+        if (this.s - this.startS > this.sp.sleepAfter) this.set('sleep');
         break;
-      case 'brake':
+      case 'sleep':
         this.braking = true;
-        this.v -= this.decel * dt;
-        if (this.v <= this.to) {
-          this.v = Math.max(0, this.to);
-          if (this.to <= 0.1) { this.mode = 'hold'; this.holdT = this.hold; } else this.mode = 'cruise';
-        }
+        this.v = Math.max(0, this.v - this.sp.sleepDecel * dt);
+        if (this.v === 0) { this.set('hold'); this.holdT = this.sp.sleepHold; }
         break;
       case 'hold':
         this.braking = true;
-        this.v = 0;
         this.holdT -= dt;
-        if (this.holdT <= 0) this.mode = 'cruise';
+        if (this.holdT <= 0) this.set('wake');
+        break;
+      case 'wake':
+        this.braking = false;
+        this.v += 3 * dt;
+        if (this.t > 0.8) this.set('exit');
         break;
       case 'exit':
         this.braking = false;
-        this.v = Math.min(this.v + 2 * dt, 18);
-        this.x += 1.8 * dt;
+        this.v = Math.min(this.v + 3 * dt, cruise * 1.3);
+        this.x += 2.2 * dt;
         if (this.x > 7) this.gone = true;
         break;
     }
-    if (this.merging) { this.x = Math.max(0, this.x - 1.8 * dt); if (this.x === 0) this.merging = false; }
     this.s += this.v * dt;
   }
 }

@@ -3,7 +3,7 @@ import type { CrashReason, CrashTarget } from '../sim/session';
 import { clamp, easeOutBack, hash } from '../util';
 import { bubble, burst, dots, panel, poly, roundRect, sfx, speedLines } from './comic';
 import { drawPedalCam } from './pedalcam';
-import { drawCarRear, drawCrate, drawDucks } from './sprites';
+import { drawCarRear, drawDog, drawWorker } from './sprites';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -70,39 +70,32 @@ export class CrashSeq {
       sfx(ctx, 'KRAK!!', 230, 120, 110, C.RED, { rot: -0.18 });
       return;
     }
+    if (r === 'sprain') {
+      // 车轮崴了：轮胎朝外翻、轮毂歪掉
+      ctx.fillStyle = C.ORANGE; ctx.fillRect(0, 0, W, H);
+      speedLines(ctx, cx, cy, 60, 600, 60, 'rgba(255,255,255,0.5)', 5, 5);
+      ctx.save(); ctx.translate(cx, cy + 40); ctx.rotate(0.5 + Math.sin(t * 30) * 0.03);
+      ctx.fillStyle = C.INK; ctx.beginPath(); ctx.ellipse(0, 0, 70, 130, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#adb5bd'; ctx.beginPath(); ctx.ellipse(0, 0, 30, 60, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.lineWidth = 5; ctx.strokeStyle = C.INK; ctx.stroke();
+      ctx.restore();
+      ctx.strokeStyle = C.WHITE; ctx.lineWidth = 6; ctx.lineCap = 'round';
+      for (let i = 0; i < 5; i++) { const a = -0.9 + i * 0.35; ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * 170, cy + 40 + Math.sin(a) * 170); ctx.lineTo(cx + Math.cos(a) * 220, cy + 40 + Math.sin(a) * 220); ctx.stroke(); }
+      sfx(ctx, '崴!!', 560, 110, 120, C.YELLOW, { rot: 0.15 });
+      return;
+    }
     ctx.fillStyle = C.RED; ctx.fillRect(0, 0, W, H);
     speedLines(ctx, cx, cy, 60, 600, 60, 'rgba(255,255,255,0.55)', 3, 5);
     const grow = 1 + t * 0.6;
     if (r === 'rear') {
-      drawCarRear(ctx, cx, cy + 160, 120 * grow, this.target === 'truck' ? 'truck' : 'car', C.RED, true, t);
-      sfx(ctx, '!!', 560, 110, 120, C.YELLOW, { rot: 0.15 });
-    } else if (r === 'ducks') {
-      ctx.save(); ctx.translate(cx, cy + 120); drawDucks(ctx, -60, 0, 140 * grow * 0.8, 0.5, t); ctx.restore();
-      sfx(ctx, 'QUACK?!', 220, 90, 70, C.YELLOW, { rot: -0.15 });
-    } else if (r === 'crate') {
-      drawCrate(ctx, cx, cy + 150, 200 * grow, 1);
-      sfx(ctx, '!!', 560, 110, 120, C.YELLOW, { rot: 0.15 });
-    } else if (r === 'redlight') {
-      ctx.fillStyle = '#222'; roundRect(ctx, cx - 70, 40, 140, 320, 20); ctx.fill(); ctx.lineWidth = 6; ctx.stroke();
-      [['#ff3b3b', 1], ['#553', 0], ['#353', 0]].forEach(([c, on], i) => {
-        ctx.beginPath(); ctx.arc(cx, 100 + i * 100, 40, 0, Math.PI * 2); ctx.fillStyle = c as string; ctx.fill(); ctx.stroke();
-        if (on) burst(ctx, cx, 100, 90 + Math.sin(t * 20) * 6, 60, 16, 'rgba(255,80,80,0.0)', 4, t, 2);
-      });
-      sfx(ctx, '红灯!!', 520, 300, 80, C.YELLOW, { rot: 0.1 });
-    } else if (r === 'rollback') {
-      ctx.fillStyle = '#2b2d42'; roundRect(ctx, 80, 90, 560, 200, 30); ctx.fill(); ctx.lineWidth = 6; ctx.stroke();
-      ctx.fillStyle = '#9fd8ef'; roundRect(ctx, 100, 108, 520, 164, 20); ctx.fill(); ctx.stroke();
-      ctx.save(); ctx.translate(cx, 180); ctx.scale(grow, grow);
-      ctx.fillStyle = '#e9ecef'; roundRect(ctx, -140, -30, 280, 110, 20); ctx.fill(); ctx.lineWidth = 5; ctx.stroke();
-      ctx.fillStyle = C.YELLOW; ctx.beginPath(); ctx.arc(-100, 30, 22, 0, Math.PI * 2); ctx.arc(100, 30, 22, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-      sfx(ctx, '滴滴——!!', 360, 330, 64, C.YELLOW, { rot: -0.08 });
-    } else if (r === 'cliff') {
-      ctx.fillStyle = C.PAPER; ctx.beginPath(); ctx.arc(cx, cy + 40, 150, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 8; ctx.stroke();
-      const a = Math.PI * 0.75 + Math.PI * 1.5 * clamp(this.speed * 3.6 / 120, 0, 1) + Math.sin(t * 40) * 0.05;
-      ctx.strokeStyle = C.RED; ctx.lineWidth = 12; ctx.beginPath(); ctx.moveTo(cx, cy + 40); ctx.lineTo(cx + Math.cos(a) * 130, cy + 40 + Math.sin(a) * 130); ctx.stroke();
-      sfx(ctx, `${Math.round(this.speed * 3.6)}km/h`, cx, cy + 110, 50, C.INK, { shadow: false, lw: 0.1 });
-      sfx(ctx, '太快了!!', 540, 80, 64, C.YELLOW, { rot: 0.12 });
+      drawCarRear(ctx, cx, cy + 165, 80 * Math.min(grow, 1.4), this.target === 'truck' ? 'truck' : 'car', C.RED, true, t, 'sleep');
+      sfx(ctx, '!!', 590, 110, 120, C.YELLOW, { rot: 0.15 });
+    } else if (r === 'worker') {
+      drawWorker(ctx, cx, cy + 178, 110 * Math.min(grow, 1.15), t, false);
+      sfx(ctx, 'HEY!!', 560, 110, 100, C.YELLOW, { rot: 0.15 });
+    } else if (r === 'dog') {
+      drawDog(ctx, cx, cy + 160, 230 * grow, t, 1, false);
+      sfx(ctx, 'WOOF?!', 220, 80, 80, C.YELLOW, { rot: -0.15 });
     } else {
       ctx.fillStyle = '#e9c46a'; ctx.fillRect(0, 0, W, H);
       for (let i = 0; i < 12; i++) { ctx.fillStyle = i % 2 ? C.INK : C.YELLOW; ctx.fillRect(i * 60 - t * 40, 300, 60, 40); }
@@ -116,43 +109,36 @@ export class CrashSeq {
     speedLines(ctx, 975, 210, 120, 500, 70, 'rgba(17,17,17,0.5)', 7, 3);
     drawFace(ctx, 975, 230, 1.0, t);
     const lines: Record<CrashReason, string> = {
-      pedal: '踏板断了?!', rear: '刹不住啦!!', ducks: '鸭子!!', crate: '箱子!!', redlight: '红灯?!', rollback: '溜车了!!', cliff: '啊啊啊——', wall: '停不下来!!',
+      pedal: '踏板断了?!', rear: '他睡着了?!', worker: '大叔小心!!', dog: '狗狗!!', sprain: '轮子崴了?!', wall: '停不下来!!',
     };
     bubble(ctx, lines[this.reason], 1120, 100, 34, 1050, 170, true);
   }
 
   // ---- 格 3：车外侧视 ----
   private panel3(ctx: Ctx, t: number) {
-    const sky = this.target === 'cliff' ? '#ff9f6b' : '#9fd8ef';
-    ctx.fillStyle = sky; ctx.fillRect(0, 400, W, 320);
+    ctx.fillStyle = '#9fd8ef'; ctx.fillRect(0, 400, W, 320);
     ctx.fillStyle = dots(ctx, 'rgba(0,0,0,0.12)', 8, 2); ctx.fillRect(0, 400, W, 320);
     const ground = 640;
     ctx.fillStyle = '#4a4e5a'; ctx.fillRect(0, ground, W, 80);
     ctx.fillStyle = C.WHITE; for (let i = 0; i < 14; i++) ctx.fillRect(((i * 120 - t * 900) % 1400 + 1400) % 1400 - 100, ground + 26, 60, 8);
     ctx.lineWidth = 5; ctx.strokeStyle = C.INK; ctx.beginPath(); ctx.moveTo(0, ground); ctx.lineTo(W, ground); ctx.stroke();
 
-    const behind = this.target === 'behind';
     const k = clamp(t / 1.0, 0, 1);
-    const vx = behind ? 760 - k * 260 : 120 + k * 520;
-    // 速度线
+    const vx = 120 + k * 520;
     ctx.strokeStyle = 'rgba(17,17,17,0.6)'; ctx.lineWidth = 4;
-    for (let i = 0; i < 8; i++) {
-      const y = 470 + i * 20;
-      ctx.beginPath();
-      if (behind) { ctx.moveTo(vx + 250, y); ctx.lineTo(vx + 420 + i * 10, y); } else { ctx.moveTo(vx - 30 - i * 14, y); ctx.lineTo(vx - 220, y); }
-      ctx.stroke();
-    }
-    this.drawTarget(ctx, ground, t, behind);
-    if (this.target === 'cliff') {
-      ctx.save(); ctx.translate(vx + 110, ground - 60); ctx.rotate(k * 0.4); drawVan(ctx, -110, 60 - k * 0, 1, false); ctx.restore();
-    } else {
-      drawVan(ctx, vx, ground, 1, behind);
-    }
-    if (this.reason === 'ducks') { ctx.save(); drawDucks(ctx, 1000, ground + 2, 70, 0.9, t); ctx.restore(); }
-    sfx(ctx, behind ? 'ROLL...' : 'VROOOM!', 260, 450, 50, C.YELLOW, { rot: -0.1 });
+    for (let i = 0; i < 8; i++) { const y = 470 + i * 20; ctx.beginPath(); ctx.moveTo(vx - 30 - i * 14, y); ctx.lineTo(vx - 220, y); ctx.stroke(); }
+    this.drawTarget(ctx, ground);
+    if (this.target === 'ditch') {
+      // 车轮崴了 → 车身一歪冲向路边
+      ctx.save(); ctx.translate(vx + 160, ground); ctx.rotate(k * 0.22); drawVan(ctx, -160, 0, 1, false); ctx.restore();
+    } else drawVan(ctx, vx, ground, 1, false);
+    // 人和狗跳开（安然无恙）
+    if (this.reason === 'worker') drawWorker(ctx, 1080 + k * 80, ground - k * 120 + k * k * 60, 70, t, true);
+    if (this.reason === 'dog') drawDog(ctx, 1060 + k * 120, ground - k * 90 + k * k * 40, 90, t, 1, true);
+    sfx(ctx, 'VROOOM!', 260, 450, 50, C.YELLOW, { rot: -0.1 });
   }
 
-  private drawTarget(ctx: Ctx, ground: number, t: number, behind: boolean) {
+  private drawTarget(ctx: Ctx, ground: number) {
     const tg = this.target;
     if (tg === 'car' || tg === 'truck') {
       const w = tg === 'truck' ? 320 : 240, h = tg === 'truck' ? 170 : 90;
@@ -162,28 +148,22 @@ export class CrashSeq {
       if (tg === 'car') { ctx.fillStyle = '#243b55'; poly(ctx, [x + 40, ground - h - 26, x + 70, ground - h - 70, x + 180, ground - h - 70, x + 210, ground - h - 26]); ctx.fill(); ctx.stroke(); }
       wheel(ctx, x + 50, ground - 22, 26); wheel(ctx, x + w - 50, ground - 22, 26);
       ctx.fillStyle = '#ff2030'; ctx.fillRect(x - 6, ground - h - 6, 14, 26);
+      sfx(ctx, 'Zzz', x + w * 0.6, ground - h - 70, 44, C.BLUE, { rot: -0.15 });
     } else if (tg === 'pole') {
       ctx.fillStyle = '#6c757d'; ctx.fillRect(980, ground - 240, 24, 240); ctx.lineWidth = 5; ctx.strokeStyle = C.INK; ctx.strokeRect(980, ground - 240, 24, 240);
       ctx.fillStyle = C.YELLOW; ctx.fillRect(950, ground - 250, 60, 20); ctx.strokeRect(950, ground - 250, 60, 20);
+    } else if (tg === 'bin') {
+      // 绿色大垃圾桶
+      ctx.fillStyle = C.GREEN; roundRect(ctx, 960, ground - 150, 120, 150, 10); ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = C.INK; ctx.stroke();
+      ctx.fillStyle = '#2d6a4f'; ctx.fillRect(950, ground - 170, 140, 26); ctx.strokeRect(950, ground - 170, 140, 26);
+      wheel(ctx, 985, ground - 8, 12); wheel(ctx, 1055, ground - 8, 12);
     } else if (tg === 'wall') {
       ctx.fillStyle = '#e9c46a'; ctx.fillRect(1000, 410, 260, ground - 410); ctx.lineWidth = 6; ctx.strokeStyle = C.INK; ctx.strokeRect(1000, 410, 260, ground - 410);
       for (let i = 0; i < 6; i++) { ctx.fillStyle = i % 2 ? C.INK : C.YELLOW; ctx.fillRect(1000, 430 + i * 30, 30, 30); }
-    } else if (tg === 'crate') {
-      drawCrate(ctx, 1000, ground, 90, 1);
-    } else if (tg === 'cross') {
-      const x = 1300 - clamp(t, 0, 1) * 420;
-      ctx.fillStyle = C.GREEN; roundRect(ctx, x, ground - 200, 400, 175, 12); ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = C.INK; ctx.stroke();
-      wheel(ctx, x + 70, ground - 22, 28); wheel(ctx, x + 320, ground - 22, 28);
-      sfx(ctx, 'HONK!!', x + 200, ground - 240, 54, C.YELLOW, { rot: 0.1 });
-    } else if (tg === 'cliff') {
-      ctx.fillStyle = '#7d5e53'; poly(ctx, [700, ground, 1280, ground, 1280, 720, 760, 720]); ctx.fill();
-      ctx.fillStyle = '#ff9f6b'; poly(ctx, [860, ground - 2, 1280, ground - 2, 1280, 720, 900, 720]); ctx.fill();
-      ctx.fillStyle = '#ddd'; ctx.fillRect(800, ground - 40, 60, 12); ctx.lineWidth = 4; ctx.strokeStyle = C.INK; ctx.strokeRect(800, ground - 40, 60, 12);
-      ctx.save(); ctx.translate(880, ground - 40); ctx.rotate(0.6 + t); ctx.fillStyle = '#ddd'; ctx.fillRect(0, 0, 60, 12); ctx.strokeRect(0, 0, 60, 12); ctx.restore();
-    } else if (tg === 'behind' && behind) {
-      ctx.fillStyle = '#e9ecef'; roundRect(ctx, 100, ground - 120, 260, 95, 14); ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = C.INK; ctx.stroke();
-      wheel(ctx, 150, ground - 22, 26); wheel(ctx, 310, ground - 22, 26);
-      sfx(ctx, 'HONK!!', 230, ground - 160, 50, C.YELLOW);
+    } else if (tg === 'ditch') {
+      ctx.fillStyle = '#5fbf4a'; poly(ctx, [900, ground, 1280, ground, 1280, 720, 940, 720]); ctx.fill();
+      ctx.fillStyle = '#6c757d'; ctx.fillRect(1040, ground - 70, 12, 70); ctx.fillStyle = C.YELLOW; poly(ctx, [1010, ground - 110, 1080, ground - 110, 1080, ground - 60, 1010, ground - 60]); ctx.fill();
+      ctx.lineWidth = 4; ctx.strokeStyle = C.INK; ctx.stroke();
     }
   }
 
@@ -214,12 +194,13 @@ export class CrashSeq {
     // 咖啡泼洒
     ctx.fillStyle = '#6f4518';
     for (let i = 0; i < 10; i++) { ctx.beginPath(); ctx.arc(380 + i * 30 + t * 60, 220 - Math.sin(i) * 60 + t * t * 200, 10 + (i % 3) * 6, 0, Math.PI * 2); ctx.fill(); }
-    const word = this.target === 'cliff' ? 'KA-BOOM!!' : 'KRAAASH!!!';
+    const word = 'KRAAASH!!!';
     const sc = easeOutBack(clamp(t / 0.3, 0, 1));
     ctx.save(); ctx.translate(640, 150); ctx.scale(sc, sc);
     sfx(ctx, word, 0, 0, 150, C.YELLOW, { rot: -0.08, lw: 22, skew: -0.15 });
     ctx.restore();
-    if (this.reason === 'ducks') sfx(ctx, '（鸭子们安然无恙）', 640, 660, 30, C.WHITE, { lw: 6 });
+    if (this.reason === 'worker') sfx(ctx, '（环卫大叔安然无恙）', 640, 660, 30, C.WHITE, { lw: 6 });
+    if (this.reason === 'dog') sfx(ctx, '（狗狗安然无恙）', 640, 660, 30, C.WHITE, { lw: 6 });
     ctx.restore();
   }
 }

@@ -22,8 +22,6 @@ export function palette(theme: Theme, sky: Sky, rain: boolean): Palette {
   const grounds: Record<Theme, [string, string]> = {
     yard: ['#e8d8b0', '#dccb9f'],
     city: ['#b9b9c4', '#aeaeb9'],
-    park: ['#7fd35b', '#6fc44c'],
-    mountain: ['#7cae5a', '#6c9e4a'],
   };
   const [skyTop, skyBot, fog] = skies[sky];
   const [ground1, ground2] = grounds[theme];
@@ -200,9 +198,6 @@ export function drawSky(ctx: Ctx, pal: Palette, horizon: number, bgX: number, th
   if (theme === 'city') {
     layer(0.3, night ? '#1b2440' : mix(pal.skyBot, '#4a5a80', 0.45), (x) => skyline(x, 1), 0);
     layer(0.6, night ? '#141a30' : mix(pal.skyBot, '#2b3a5a', 0.6), (x) => skyline(x, 2) * 0.7, 0);
-  } else if (theme === 'mountain') {
-    layer(0.25, night ? '#1a2238' : mix(pal.skyBot, '#6d597a', 0.5), (x) => 110 + Math.sin(x * 0.006) * 50 + Math.sin(x * 0.017) * 25, 0);
-    layer(0.5, night ? '#121a2a' : mix(pal.skyBot, '#355070', 0.65), (x) => 60 + Math.sin(x * 0.01 + 2) * 35 + Math.sin(x * 0.03) * 12, 0);
   } else {
     layer(0.3, night ? '#1b2a2a' : mix(pal.skyBot, '#4a7c59', 0.5), (x) => 40 + Math.sin(x * 0.008) * 22 + Math.sin(x * 0.03) * 8, 0);
   }

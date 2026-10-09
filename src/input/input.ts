@@ -40,7 +40,6 @@ export class Input {
   private pulses: { s: number; w: number; from: number; until: number }[] = [];
   private lastRumble = 0;
   private lastSent = 0;
-  private holdUntil = 0;
   onUserGesture?: (code: string) => void;
 
   constructor() {
@@ -136,28 +135,11 @@ export class Input {
     const t = performance.now() + delay;
     this.pulses.push({ s: strong, w: weak, from: t, until: t + ms });
   }
-  /** 断裂"嘎巴"：嘎 = 高频小马达尖锐一下；停顿；巴 = 大马达重重一下；之后一段余震 */
-  snap() {
-    this.pulses = [];
-    this.rumbleBase = { s: 0, w: 0 };
-    this.holdUntil = performance.now() + 650;
-    const steps: [number, number, number, number][] = [[0, 0.15, 1, 55], [85, 1, 1, 110], [200, 0.45, 0.15, 380]];
-    if (this.rumbleSink) { for (const [d, s, w, ms] of steps) this.pulse(s, w, ms, d); return; }
-    const g = this.pad();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const act = g && (g as any).vibrationActuator;
-    if (!act || typeof act.playEffect !== 'function') return;
-    for (const [d, s, w, ms] of steps) {
-      setTimeout(() => act.playEffect('dual-rumble', { startDelay: 0, duration: ms, strongMagnitude: s, weakMagnitude: w }).catch(() => {}), d);
-    }
-  }
   private flushRumble(now: number) {
     this.pulses = this.pulses.filter((p) => p.until > now);
     let s = this.rumbleBase.s, w = this.rumbleBase.w;
-    if (this.rumbleSink && now < this.holdUntil) { s = 0; w = 0; }
     for (const p of this.pulses) if (p.from <= now) { s = Math.max(s, p.s); w = Math.max(w, p.w); }
     if (this.rumbleSink) { this.rumbleSink(s, w); return; }
-    if (now < this.holdUntil) return;
     if (now - this.lastRumble < 70) return;
     this.lastRumble = now;
     const g = this.pad();

@@ -15,12 +15,13 @@ export class Vehicle {
 
   constructor(mass: number, s: number, v: number) { this.mass = mass; this.s = s; this.v = v; }
 
-  step(dt: number, throttle: number, pedalN: number, grade: number, mu: number) {
+  /** autoBrakeF：自动驾驶自己施加的轮端制动力 (N)，不经过踏板 */
+  step(dt: number, throttle: number, pedalN: number, grade: number, mu: number, autoBrakeF = 0) {
     const m = this.mass;
     const th = Math.atan(grade);
     const sin = Math.sin(th), cos = Math.cos(th);
     this.fade = 1 - clamp((this.temp - 0.55) / 0.45, 0, 1) * 0.4;
-    const req = VAN.BRAKE_K * pedalN * this.fade;
+    const req = VAN.BRAKE_K * pedalN * this.fade + autoBrakeF;
     const fric = mu * m * G * cos;
     const moving = Math.abs(this.v) > 0.05;
     this.locked = moving && req > fric;

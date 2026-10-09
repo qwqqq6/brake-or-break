@@ -1,12 +1,12 @@
-import { C, H, HORIZON, ROAD, VAN, W } from '../config';
+import { AUTO, C, H, HORIZON, ROAD, VAN, W } from '../config';
 import type { Session } from '../sim/session';
 import type { Input } from '../input/input';
 import { clamp, easeOutBack, fmtTime, hash } from '../util';
-import { burst, caption, sfx } from './comic';
+import { burst, caption, dots, panel, roundRect, sfx, speedLines } from './comic';
 import { drawCockpit, PEDAL_CAM } from './cockpit';
 import { drawPedalCam } from './pedalcam';
 import { drawRoad, drawSky, palette, type Dyn, type Palette } from './road3d';
-import { drawCarRear, drawCrate, drawDucks, drawLight, drawWall } from './sprites';
+import { drawCarRear, drawDog, drawWall, drawWorker } from './sprites';
 
 type Ctx = CanvasRenderingContext2D;
 const DEPTH = 1 / Math.tan(((ROAD.FOV / 2) * Math.PI) / 180);
@@ -15,8 +15,8 @@ let palCache: { key: string; pal: Palette } | null = null;
 
 export function renderSession(ctx: Ctx, s: Session, t: number, input: Input) {
   const d = s.def;
-  const key = `${d.theme}|${d.sky}|${d.rain}`;
-  if (!palCache || palCache.key !== key) palCache = { key, pal: palette(d.theme, d.sky, d.rain) };
+  const key = `${d.theme}|${d.sky}`;
+  if (!palCache || palCache.key !== key) palCache = { key, pal: palette(d.theme, d.sky, false) };
   const pal = palCache.pal;
   const van = s.van;
   const night = d.sky === 'night';
@@ -39,7 +39,6 @@ export function renderSession(ctx: Ctx, s: Session, t: number, input: Input) {
     ctx.fillStyle = g; ctx.fillRect(0, 200, W, 320);
     ctx.restore();
   }
-  if (d.rain) drawRain(ctx, t, van.v);
   // 咖啡渍
   for (const st of s.stains) {
     ctx.fillStyle = 'rgba(111,69,24,0.55)';
@@ -57,7 +56,7 @@ export function renderSession(ctx: Ctx, s: Session, t: number, input: Input) {
   drawCockpit(ctx, {
     force: s.pedal.force, threshold: s.pedal.threshold, peak: s.peak, speed: van.v, temp: van.temp, fatigue: s.pedal.fatigue,
     coffee: s.coffee, diceLon: s.dice.lon, diceLat: s.dice.lat, wheel: -s.road.curveAt(van.s) * 2.5, t,
-    locked: van.locked && Math.abs(van.v) > 1, fade: van.fade, tailgater: !!s.tailgater, honk: !!s.tailgater && s.tailgater.honk > 1.6, mass: van.mass,
+    locked: van.locked && Math.abs(van.v) > 1, fade: van.fade, mass: van.mass, auto: s.auto, inCurve: s.inCurve,
   });
   // 咖啡飞溅
   ctx.fillStyle = '#6f4518';
@@ -76,38 +75,25 @@ export function renderSession(ctx: Ctx, s: Session, t: number, input: Input) {
 function dynamics(s: Session, t: number): Dyn[] {
   const list: Dyn[] = [];
   const l = s.lead;
-  if (l) list.push({ s: l.s, x: l.x, draw: (c, x, y, p) => drawCarRear(c, x, y, p, l.kind, l.color, l.braking, t) });
-  for (const st of s.stops) {
-    if (st.light) { const L = st.light; list.push({ s: st.s + 1, x: 0, draw: (c, x, y, p) => drawLight(c, x, y, p, L.state, t) }); }
-    if (st.final) list.push({ s: st.s + 11, x: 0, draw: (c, x, y, p) => drawWall(c, x, y, p) });
+  if (l) {
+    const mood = l.asleep ? 'sleep' : l.mode === 'wake' ? 'wake' : 'none';
+    list.push({ s: l.s, x: l.x, draw: (c, x, y, p) => drawCarRear(c, x, y, p, l.kind, l.color, l.braking, t, mood) });
   }
-  for (const hz of s.hazards) {
-    if (hz.state === 'idle' || hz.state === 'clear') continue;
-    if (hz.kind === 'ducks') list.push({ s: hz.s, x: 0, draw: (c, x, y, p) => drawDucks(c, x, y, p, hz.p, t) });
-    else list.push({ s: hz.s, x: 0, draw: (c, x, y, p) => drawCrate(c, x, y, p, hz.p) });
+  for (const st of s.stops) if (st.final) list.push({ s: st.s + 11, x: 0, draw: (c, x, y, p) => drawWall(c, x, y, p) });
+  for (const cr of s.crossers) {
+    if (cr.state === 'idle' || cr.state === 'clear') continue;
+    const moving = cr.state !== 'block';
+    // 远处也要一眼看到：头顶闪一个红色感叹号
+    const mark = (c: Ctx, x: number, y: number, p: number, h: number) => {
+      if (Math.floor(t * 6) % 2) return;
+      const r = Math.max(10, p * 0.45);
+      burst(c, x, y - h * p - r * 1.3, r, r * 0.65, 10, C.RED, Math.max(2, r * 0.14), 0, 3);
+      sfx(c, '!', x, y - h * p - r * 1.25, r * 1.2, C.YELLOW, { lw: Math.max(2, r * 0.15), shadow: false });
+    };
+    if (cr.kind === 'worker') list.push({ s: cr.s, x: cr.x, draw: (c, x, y, p) => { drawWorker(c, x, y, p * 1.15, t, moving); mark(c, x, y, p, 2.1); } });
+    else list.push({ s: cr.s, x: cr.x, draw: (c, x, y, p) => { drawDog(c, x, y, p * 1.6, t, cr.state === 'block' ? 1 : -cr.side, moving); mark(c, x, y, p, 1.2); } });
   }
   return list;
-}
-
-function drawRain(ctx: Ctx, t: number, v: number) {
-  ctx.save();
-  ctx.strokeStyle = 'rgba(200,220,255,0.45)'; ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  const slant = 0.15 + v * 0.01;
-  for (let i = 0; i < 140; i++) {
-    const x = (hash(i) * W + t * 60) % W;
-    const y = (hash(i, 2) * 520 + t * (900 + hash(i, 3) * 300)) % 520;
-    ctx.moveTo(x, y); ctx.lineTo(x - 22 * slant, y + 22);
-  }
-  ctx.stroke();
-  // 挡风玻璃水滴
-  ctx.fillStyle = 'rgba(220,235,255,0.35)'; ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1;
-  for (let i = 0; i < 40; i++) {
-    const life = (t * 0.4 + hash(i, 9)) % 1;
-    const x = 140 + hash(i, 5) * 1000, y = 60 + hash(i, 6) * 380 + life * 40;
-    ctx.beginPath(); ctx.arc(x, y, 3 + hash(i, 7) * 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  }
-  ctx.restore();
 }
 
 function drawHud(ctx: Ctx, s: Session, t: number) {
@@ -118,8 +104,7 @@ function drawHud(ctx: Ctx, s: Session, t: number) {
   caption(ctx, `TIME ${fmtTime(s.time)}${d.par ? `  /  PAR ${fmtTime(d.par)}` : ''}`, W - 136, 58, { size: 18, align: 'right', bg: C.WHITE });
 
   const ob = s.objective();
-  const warnBlink = ob.warn && Math.floor(t * 4) % 2 === 0;
-  if (ob.text) caption(ctx, ob.text, W / 2, 112, { size: 22, bg: warnBlink ? C.RED : C.YELLOW, fg: warnBlink ? C.WHITE : C.INK });
+  if (ob) caption(ctx, ob, W / 2, 112, { size: 22, bg: C.YELLOW });
 
   // 弹出字
   s.popups.forEach((p, i) => {
@@ -157,4 +142,51 @@ function drawHud(ctx: Ctx, s: Session, t: number) {
     sfx(ctx, 'DELIVERED', 0, 70, 40, C.WHITE);
     ctx.restore();
   }
+  if (s.needBrake) drawBrakePrompt(ctx, t);
+  if (s.takeover > 0) drawTakeover(ctx, 1 - s.takeover / AUTO.TAKEOVER_SLOWMO, t);
+}
+
+/** 大大的"刹车!"提示：压在仪表台上，不挡路面；一踩刹车就消失 */
+function drawBrakePrompt(ctx: Ctx, t: number) {
+  const pulse = 1 + Math.sin(t * 18) * 0.06;
+  const on = Math.floor(t * 8) % 2 === 0;
+  ctx.save();
+  ctx.translate(W / 2, 528); ctx.scale(pulse, pulse);
+  ctx.save(); ctx.scale(1.9, 0.62);
+  burst(ctx, 0, 0, 170, 120, 18, on ? C.RED : C.YELLOW, 7, t * 2, 7);
+  ctx.restore();
+  sfx(ctx, '刹车!!', 0, 4, 104, on ? C.YELLOW : C.RED, { rot: -0.04, lw: 16, skew: -0.1 });
+  ctx.restore();
+}
+
+/** 退出自动驾驶分镜：漫画格弹入，中控屏告诉你"拜拜" */
+function drawTakeover(ctx: Ctx, k: number, t: number) {
+  const inK = easeOutBack(clamp(k / 0.18, 0, 1));
+  const out = clamp((k - 0.82) / 0.18, 0, 1);
+  const pts = [140, 128, 540, 114, 532, 288, 150, 302];
+  const cx = 340, cy = 208;
+  ctx.save();
+  ctx.globalAlpha = 1 - out;
+  ctx.translate(cx - out * 260, cy - out * 40); ctx.scale(0.5 + 0.5 * inK, 0.5 + 0.5 * inK); ctx.rotate((1 - inK) * -0.15); ctx.translate(-cx, -cy);
+  panel(ctx, pts, () => {
+    ctx.fillStyle = C.RED; ctx.fillRect(130, 100, 420, 210);
+    ctx.fillStyle = dots(ctx, 'rgba(0,0,0,0.25)', 9, 2.4); ctx.fillRect(130, 100, 420, 210);
+    speedLines(ctx, 340, 210, 60, 300, 46, 'rgba(255,255,255,0.45)', 4, 4);
+    // 中控屏
+    ctx.save(); ctx.translate(340, 214); ctx.scale(0.86, 0.86); ctx.rotate(-0.03 + Math.sin(t * 40) * 0.006);
+    roundRect(ctx, -170, -62, 340, 124, 14); ctx.fillStyle = C.INK; ctx.fill();
+    roundRect(ctx, -158, -52, 316, 104, 8); ctx.fillStyle = Math.floor(t * 10) % 2 ? '#3a0a10' : '#1a0507'; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = C.RED; ctx.stroke();
+    // 方向盘 + 斜杠
+    ctx.strokeStyle = C.RED; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(-110, 0, 30, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-140, 0); ctx.lineTo(-80, 0); ctx.moveTo(-110, 0); ctx.lineTo(-110, 30); ctx.stroke();
+    ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(-145, -35); ctx.lineTo(-75, 35); ctx.stroke();
+    ctx.fillStyle = C.WHITE; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.font = "900 30px 'Microsoft YaHei', sans-serif"; ctx.fillText('自动驾驶已退出', -62, -14);
+    ctx.fillStyle = C.YELLOW; ctx.font = "900 20px 'Microsoft YaHei', sans-serif"; ctx.fillText('祝你好运 :)', -60, 26);
+    ctx.restore();
+  });
+  sfx(ctx, 'BEEP BEEP!', 470, 120, 40, C.YELLOW, { rot: 0.12 });
+  ctx.restore();
 }

@@ -1,5 +1,5 @@
-import { C, VAN } from '../config';
-import type { LevelDef, LeadSpawn } from '../levels';
+import { AUTO, C, CURVE, ROAD, VAN } from '../config';
+import type { CrosserKind, LevelDef, LeadSpawn } from '../levels';
 import type { AudioEngine } from '../audio';
 import type { Input } from '../input/input';
 import { clamp, lerp, rng } from '../util';
@@ -8,18 +8,26 @@ import { Vehicle } from './vehicle';
 import { Pedal } from './pedal';
 import { LeadCar } from './lead';
 
-export type CrashReason = 'pedal' | 'rear' | 'ducks' | 'crate' | 'redlight' | 'rollback' | 'cliff' | 'wall';
-export type CrashTarget = 'car' | 'truck' | 'pole' | 'wall' | 'cliff' | 'crate' | 'cross' | 'behind';
+export type CrashReason = 'pedal' | 'rear' | 'worker' | 'dog' | 'sprain' | 'wall';
+export type CrashTarget = 'car' | 'truck' | 'bin' | 'pole' | 'wall' | 'ditch';
 
 export interface Popup { text: string; sub?: string; color: string; t: number; life: number; size: number; rot: number; y: number }
-export interface LightRT { state: 'green' | 'yellow' | 'red'; t: number; triggered: boolean }
-export interface StopRT { s: number; final: boolean; light: LightRT | null; cargo: number; scored: boolean; done: boolean; stoppedT: number }
-export interface HazardRT { s: number; kind: 'ducks' | 'crate'; ttc: number; state: 'idle' | 'active' | 'clearing' | 'clear'; t: number; stoppedT: number; p: number }
-export interface HairpinRT { s: number; limit: number; dir: number; done: boolean }
+export interface StopRT { s: number; final: boolean; scored: boolean; done: boolean; stoppedT: number }
+export interface CrosserRT {
+  s: number; kind: CrosserKind; ttc: number; block: number;
+  state: 'idle' | 'enter' | 'block' | 'exit' | 'clear'; t: number; x: number; side: number;
+}
+export interface Danger { kind: 'crosser' | 'lead' | 'stop'; d: number }
 export interface Stain { x: number; y: number; r: number; seed: number }
 export interface Drop { x: number; y: number; vx: number; vy: number; life: number }
 
 export interface Fx { audio: AudioEngine; input: Input }
+
+const HW = ROAD.HALF_W;
+const CROSS = {
+  worker: { tin: 1.3, tout: 1.5, bx: 0.7 },
+  dog: { tin: 0.45, tout: 0.55, bx: 0.2 },
+};
 
 export class Session {
   def: LevelDef;
@@ -30,8 +38,7 @@ export class Session {
   lead: LeadCar | null = null;
   private leadQ: LeadSpawn[];
   stops: StopRT[] = [];
-  hazards: HazardRT[] = [];
-  hairpins: HairpinRT[] = [];
+  crossers: CrosserRT[] = [];
 
   status: 'countdown' | 'run' | 'crash' | 'done' = 'countdown';
   countdown = 3.2;
@@ -44,6 +51,18 @@ export class Session {
   crashTarget: CrashTarget = 'pole';
   bonuses: [string, number][] = [];
 
+  /** 自动驾驶 */
+  auto = true;
+  throttle = 0;
+  cruise: number;
+  danger: Danger | null = null;
+  /** 退出自动驾驶分镜剩余时间（真实秒） */
+  takeover = 0;
+  private resumeT = 0;
+  private timeScale = 1;
+  inCurve = false;
+  curveOver = 0;
+
   coffee = 100;
   stains: Stain[] = [];
   drops: Drop[] = [];
@@ -51,9 +70,9 @@ export class Session {
   flash = 0;
   bgX = 0;
   dice = { lon: 0, vlon: 0, lat: 0, vlat: 0 };
-  tailgater: { stopS: number; honk: number } | null = null;
   peak = 0;
   maxSpeed = 0;
+  saves = 0;
   private app = { active: false, peak: 0, v0: 0 };
   private spillCd = 0;
   private creakCd = 0;
@@ -66,18 +85,18 @@ export class Session {
     this.road = new Road(def.sections, def.events, def.theme, def.seed);
     this.van = new Vehicle(VAN.MASS + def.cargo, 0, def.startSpeed);
     this.mu = def.mu;
+    this.cruise = def.autoSpeed;
     this.leadQ = [...def.leads].sort((a, b) => a.at - b.at);
     for (const e of def.events) {
-      if (e.type === 'stop') this.stops.push({ s: e.s, final: !!e.final, light: e.light ? { state: 'green', t: 0, triggered: false } : null, cargo: e.cargo ?? 0, scored: false, done: false, stoppedT: 0 });
-      else if (e.type === 'hazard') this.hazards.push({ s: e.s, kind: e.kind, ttc: e.ttc, state: 'idle', t: 0, stoppedT: 0, p: 0 });
-      else this.hairpins.push({ s: e.s, limit: e.limit, dir: e.dir, done: false });
+      if (e.type === 'stop') this.stops.push({ s: e.s, final: !!e.final, scored: false, done: false, stoppedT: 0 });
+      else this.crossers.push({ s: e.s, kind: e.kind, ttc: e.ttc, block: e.block, state: 'idle', t: 0, x: 0, side: 1 });
     }
     this.stops.sort((a, b) => a.s - b.s);
-    this.spawnLeads();
   }
 
-  get front() { return this.van.s; }
   get finalStop() { return this.stops.find((s) => s.final) || null; }
+  /** 该踩刹车了（显示大提示） */
+  get needBrake() { return this.status === 'run' && !!this.danger && this.van.v > 1.5 && this.pedal.force < 300; }
 
   pop(text: string, color: string, sub?: string, size = 70) {
     this.popups.push({ text, sub, color, t: 0, life: 1.6, size, rot: (this.rand() - 0.5) * 0.18, y: 0 });
@@ -106,39 +125,75 @@ export class Session {
       this.van.step(dt, 0, 2000, this.road.gradeAt(this.van.s), this.mu);
       return;
     }
-    const n = Math.max(1, Math.ceil(dt / (1 / 120)));
-    const h = dt / n;
+    // 退出自动驾驶分镜期间慢动作
+    let sim = dt;
+    this.timeScale = 1;
+    if (this.takeover > 0) { this.takeover = Math.max(0, this.takeover - dt); sim = dt * AUTO.SLOWMO_SCALE; this.timeScale = AUTO.SLOWMO_SCALE; }
+    const n = Math.max(1, Math.ceil(sim / (1 / 120)));
+    const h = sim / n;
     for (let i = 0; i < n && this.status === 'run'; i++) this.step(h, input, fx);
-    this.frameFx(dt, input, fx);
+    this.frameFx(dt, fx);
   }
 
   private step(h: number, input: Input, fx: Fx) {
     const pedal = this.pedal, van = this.van;
-    pedal.update(input.brake, h);
+    // 踏板按真实时间计算踩踏速度：慢动作里正常踩不会被误判成猛踩
+    pedal.update(input.brake, h / this.timeScale);
     if (pedal.broken) { this.crash('pedal', fx); return; }
     this.peak = Math.max(this.peak, pedal.force);
 
+    // 弯道：刹车空间被压缩，超限车轮崴；猛踩直接破 1600 仍算踏板断
+    this.inCurve = Math.abs(this.road.curveAt(van.s)) > CURVE.MIN && van.v > 3;
+    if (this.inCurve && pedal.force > CURVE.LIMIT) {
+      this.curveOver += h;
+      if (this.curveOver > CURVE.GRACE) { this.crash('sprain', fx, 'ditch'); return; }
+    } else this.curveOver = 0;
+
+    // 自动驾驶
+    if (this.def.endless) this.cruise = lerp(this.def.autoSpeed, this.def.autoSpeedMax, clamp(van.s / 8000, 0, 1));
+    this.danger = this.findDanger();
+    if (this.auto) {
+      if (this.danger) {
+        this.auto = false; this.resumeT = 0;
+        this.takeover = AUTO.TAKEOVER_SLOWMO;
+        fx.audio.takeover();
+      } else if (pedal.force > 150) { this.auto = false; this.resumeT = 0; }
+    } else if (!this.danger && pedal.force < 50) {
+      this.resumeT += h;
+      if (this.resumeT > AUTO.RESUME_DELAY) { this.auto = true; fx.audio.engage(); }
+    } else this.resumeT = 0;
+
+    let autoBrake = 0;
+    if (this.auto) {
+      let target = this.cruise * (this.inCurve ? AUTO.CURVE_SLOW : 1);
+      const l = this.lead;
+      if (l && l.solid) {
+        const gap = l.s - van.s;
+        const want = 6 + van.v * AUTO.FOLLOW_GAP;
+        target = Math.min(target, Math.max(0, l.v + (gap - want) * 0.35));
+      }
+      const err = target - van.v;
+      const grade = this.road.gradeAt(van.s);
+      this.throttle = clamp(err * 0.4 + grade * 4 + 0.1, 0, 1);
+      if (err < -0.8) { this.throttle = 0; autoBrake = Math.min(AUTO.BRAKE, (-err - 0.8) * 1.2) * van.mass; }
+    } else this.throttle = 0;
+
     const prevS = van.s;
-    const grade = this.road.gradeAt(van.s - VAN.LENGTH * 0.5);
-    van.step(h, input.throttle, pedal.force, grade, this.mu);
+    van.step(h, this.throttle, pedal.force, this.road.gradeAt(van.s - VAN.LENGTH * 0.5), this.mu, autoBrake);
     this.time += h;
-    if (van.s > prevS) this.score += (van.s - prevS) * (this.def.endless ? 2 : 1);
+    if (van.s > prevS) this.score += (van.s - prevS) * (this.def.endless ? 1 + van.v / 20 : 1);
     this.maxSpeed = Math.max(this.maxSpeed, van.v);
     this.bgX -= this.road.curveAt(van.s) * van.v * h * 18;
 
     // 前车
     this.spawnLeads();
     if (this.lead) {
-      this.lead.update(h);
-      if (this.lead.gone) this.lead = null;
+      this.lead.update(h, this.cruise);
+      if (this.lead.gone) { this.addScore(Math.round(300 + van.v * 10), 'PHEW!', C.GREEN, fx, '前车醒了'); this.lead = null; }
       else if (this.lead.solid && this.lead.s - van.s <= 0) { this.crash('rear', fx, this.lead.kind); return; }
     }
     if (this.checkStops(h, fx)) return;
-    if (this.checkHazards(h, fx)) return;
-    if (this.checkHairpins(prevS, fx)) return;
-
-    // 溜车
-    if (this.tailgater && van.s < this.tailgater.stopS - 1.2) { this.crash('rollback', fx, 'behind'); return; }
+    if (this.checkCrossers(h, fx)) return;
 
     // 刹车动作评价
     const a = this.app;
@@ -148,7 +203,7 @@ export class Session {
       if (pedal.force < 40) {
         a.active = false;
         const dv = a.v0 - van.v;
-        if (a.peak >= pedal.threshold - 70) { this.addScore(800, 'CLOSE CALL!!', C.RED, fx, `${Math.round(a.peak)}N`); }
+        if (a.peak >= pedal.threshold - 70) this.addScore(800, 'CLOSE CALL!!', C.RED, fx, `${Math.round(a.peak)}N`);
         else if (a.peak < 1200 && dv > 2.5) {
           const pts = 100 * this.combo;
           this.combo = Math.min(8, this.combo + 1);
@@ -161,8 +216,7 @@ export class Session {
     this.spillCd -= h;
     if (this.coffee > 0 && this.spillCd <= 0 && (van.a < -6.6 || Math.abs(van.jerk) > 45)) {
       this.spillCd = 0.9;
-      const amt = van.a < -6.6 ? 14 : 8;
-      this.coffee = Math.max(0, this.coffee - amt);
+      this.coffee = Math.max(0, this.coffee - (van.a < -6.6 ? 14 : 8));
       this.combo = 1;
       this.pop('SPLASH!', C.BROWN, undefined, 50);
       fx.audio.splash();
@@ -171,20 +225,39 @@ export class Session {
     }
   }
 
-  private frameFx(dt: number, input: Input, fx: Fx) {
+  /** 前方最近的危险：自动驾驶遇到就退出 */
+  private findDanger(): Danger | null {
+    const van = this.van;
+    let best: Danger | null = null;
+    const take = (d: Danger) => { if (!best || d.d < best.d) best = d; };
+    for (const c of this.crossers) {
+      if (c.state === 'idle' || c.state === 'clear') continue;
+      const d = c.s - van.s;
+      if (d < -1) continue;
+      if (c.state === 'exit' && Math.abs(c.x) > 1.6) continue;
+      take({ kind: 'crosser', d });
+    }
+    const l = this.lead;
+    if (l && l.solid && (l.asleep || l.mode === 'wake')) take({ kind: 'lead', d: l.s - van.s });
+    const st = this.stops.find((s) => !s.done);
+    if (st && !st.scored) {
+      const d = st.s - van.s;
+      if (d < (van.v * van.v) / (2 * 3.2) + 10) take({ kind: 'stop', d });
+    }
+    return best;
+  }
+
+  private frameFx(dt: number, fx: Fx) {
     const van = this.van, f = this.pedal.force, thr = this.pedal.threshold;
-    // 骰子摆动
     const d = this.dice;
     d.vlon += (-30 * d.lon - 2.5 * d.vlon - van.a * 0.9) * dt; d.lon += d.vlon * dt;
     const lat = this.road.curveAt(van.s) * van.v * van.v * 0.6;
     d.vlat += (-30 * d.lat - 2.5 * d.vlat + lat) * dt; d.lat += d.vlat * dt;
     d.lon = clamp(d.lon, -1, 1); d.lat = clamp(d.lat, -1, 1);
 
-    // 踏板吱嘎
     this.creakCd -= dt;
     if (f > 1200 && this.creakCd <= 0) {
       fx.audio.creak();
-      fx.input.pulse(0.35, 0.1, 45);
       this.creakCd = lerp(0.7, 0.18, clamp((f - 1200) / (thr - 1200), 0, 1));
     }
     if (van.locked && Math.abs(van.v) > 1) {
@@ -192,16 +265,6 @@ export class Session {
       this.skidCd -= dt;
       if (this.skidCd <= 0) { this.skidCd = 1.4; this.pop('SKREEEE!', C.WHITE, undefined, 46); }
     } else this.skidCd = 0;
-
-    // 震动：越接近断点越强
-    const stress = clamp((f - 1100) / (thr - 1100), 0, 1);
-    input.setRumble(stress * stress * 0.6 + (van.locked && Math.abs(van.v) > 1 ? 0.5 : 0), stress * 0.5);
-
-    if (this.tailgater) {
-      this.tailgater.honk -= dt;
-      const st = this.stops.find((s) => !s.done);
-      if (st?.light?.state === 'green' && van.v < 0.5 && this.tailgater.honk <= 0) { fx.audio.horn(); this.tailgater.honk = 2.2; this.pop('HONK!', C.YELLOW, undefined, 44); }
-    }
   }
 
   private updateDrops(dt: number) {
@@ -212,8 +275,7 @@ export class Session {
   private spawnLeads() {
     while (this.leadQ.length && !this.lead && this.van.s >= this.leadQ[0].at) {
       const sp = this.leadQ.shift()!;
-      this.lead = new LeadCar(sp, this.van.s + sp.gap);
-      if (sp.at === 0) this.lead.x = 0;
+      this.lead = new LeadCar(sp, this.van.s + sp.gap, this.van.v * sp.speed);
     }
   }
 
@@ -225,96 +287,71 @@ export class Session {
 
   private checkStops(h: number, fx: Fx): boolean {
     const van = this.van;
-    for (const st of this.stops) {
-      if (st.done) continue;
-      const d = st.s - van.s;
-      const L = st.light;
-      if (L) {
-        L.t += h;
-        if (L.state === 'green' && !L.triggered && d < 75 && d > 5) { L.triggered = true; L.state = 'yellow'; L.t = 0; }
-        else if (L.state === 'yellow' && L.t > 1.8) { L.state = 'red'; L.t = 0; }
-        else if (L.state === 'red' && st.scored && L.t > 3.5) { L.state = 'green'; L.t = 0; fx.audio.beep(true); }
-      }
-      const stopped = Math.abs(van.v) < 0.12;
-      const lo = st.final ? -10 : -3;
-      if (!st.scored && stopped && d > lo && d < 8) {
-        st.stoppedT += h;
-        if (st.stoppedT > 0.5) this.scoreStop(st, d, fx);
-      } else if (!stopped) st.stoppedT = 0;
-
-      if (st.final) {
-        if (d < -10.6) { this.crash('wall', fx, 'wall'); return true; }
-      } else if (d < -1) {
-        if (L && L.state !== 'green') { this.crash('redlight', fx, 'cross'); return true; }
-        if (!st.scored && !L) { this.score -= 300; this.combo = 1; this.pop('越线!', C.RED, '-300', 60); fx.audio.buzz(); }
-        if (L && !st.scored) this.addScore(200, '绿灯通过', C.GREEN, fx, undefined, 44);
-        st.done = true;
-        this.tailgater = null;
-      }
-      break; // 只处理最近一个
+    const st = this.stops.find((s) => !s.done);
+    if (!st) return false;
+    const d = st.s - van.s;
+    const stopped = Math.abs(van.v) < 0.12;
+    if (!st.scored && stopped && d > (st.final ? -10 : -3) && d < 8) {
+      st.stoppedT += h;
+      if (st.stoppedT > 0.5) this.scoreStop(st, d, fx);
+    } else if (!stopped) st.stoppedT = 0;
+    if (st.final) {
+      if (d < -10.6) { this.crash('wall', fx, 'wall'); return true; }
+    } else if (d < -1 && !st.scored) {
+      this.score -= 300; this.combo = 1; this.pop('越线!', C.RED, '-300', 60); fx.audio.buzz();
+      st.done = true;
     }
     return false;
   }
 
   private scoreStop(st: StopRT, d: number, fx: Fx) {
     st.scored = true;
+    if (!st.final) st.done = true;
     const e = Math.abs(d);
     let txt = 'OK', pts = 100, col = C.WHITE;
     if (e <= 0.5) { txt = 'PERFECT STOP!'; pts = 1000; col = C.YELLOW; }
     else if (e <= 1.5) { txt = 'GREAT STOP!'; pts = 600; col = C.CYAN; }
     else if (e <= 3) { txt = 'GOOD STOP'; pts = 300; col = C.GREEN; }
     if (d < -0.5) { pts = Math.round(pts * 0.5); txt = '压线了'; col = C.ORANGE; }
-    this.addScore(pts, txt, col, fx, `${d >= 0 ? '' : '越 '}${e.toFixed(1)}m`);
+    this.addScore(pts, txt, col, fx, `${e.toFixed(1)}m`);
     fx.audio.ding();
-    if (st.cargo) { this.van.mass += st.cargo; setTimeout(() => this.pop(`装货 +${st.cargo}kg`, C.ORANGE, `车重 ${Math.round(this.van.mass)}kg`, 46), 700); }
-    if (st.light && this.def.tailgater && Math.abs(this.road.gradeAt(this.van.s)) > 0.03) this.tailgater = { stopS: this.van.s, honk: 6 };
     if (st.final) this.finish();
   }
 
-  private checkHazards(h: number, fx: Fx): boolean {
+  private checkCrossers(h: number, fx: Fx): boolean {
     const van = this.van;
-    for (const hz of this.hazards) {
-      if (hz.state === 'clear') continue;
-      const d = hz.s - van.s;
-      if (hz.state === 'idle') {
-        if (d > 0 && d < 140 && d <= Math.max(14, van.v * hz.ttc)) {
-          hz.state = 'active'; hz.t = 0;
-          this.pop(hz.kind === 'ducks' ? 'QUACK!' : 'THUD!', C.YELLOW, undefined, 60);
-          hz.kind === 'ducks' ? fx.audio.quack() : fx.audio.thud();
-          fx.input.pulse(0.4, 0.2, 150);
+    for (const c of this.crossers) {
+      if (c.state === 'clear') continue;
+      const d = c.s - van.s;
+      const cfg = CROSS[c.kind];
+      if (c.state === 'idle') {
+        if (d > 0 && d < 170 && d <= Math.max(14, van.v * c.ttc)) {
+          c.state = 'enter'; c.t = 0;
+          c.side = this.rand() < 0.5 ? -1 : 1;
+          c.x = c.side * (HW + 2);
+          if (c.kind === 'dog') { this.pop('WOOF!', C.YELLOW, undefined, 60); fx.audio.woof(); }
+          else { this.pop('HEY!', C.ORANGE, undefined, 60); fx.audio.whistle(); }
         }
         continue;
       }
-      hz.t += h;
-      if (hz.state === 'active') {
-        if (hz.kind === 'ducks') {
-          hz.p = Math.min(1, hz.t / 6.5);
-          if (hz.p >= 1) hz.state = 'clearing';
-        } else {
-          hz.p = Math.min(1, hz.t / 0.45); // 下落
-          if (Math.abs(van.v) < 0.12) hz.stoppedT += h; else hz.stoppedT = 0;
-          if (hz.stoppedT > 1.2) { hz.state = 'clearing'; hz.t = 0; }
-        }
-        if (d < 0.3) { this.crash(hz.kind, fx, hz.kind === 'ducks' ? 'pole' : 'crate'); return true; }
-      } else if (hz.state === 'clearing') {
-        if (hz.kind === 'crate') hz.p = 1 + Math.min(1, hz.t / 1.0);
-        if (hz.kind === 'ducks' || hz.t > 1.0) {
-          hz.state = 'clear';
-          this.addScore(500, 'NICE SAVE!', C.GREEN, fx, hz.kind === 'ducks' ? '鸭子安全' : undefined);
+      c.t += h;
+      const from = c.side * (HW + 2), mid = c.side * cfg.bx, to = -c.side * (HW + 2.5);
+      if (c.state === 'enter') {
+        c.x = lerp(from, mid, clamp(c.t / cfg.tin, 0, 1));
+        if (c.t >= cfg.tin) { c.state = 'block'; c.t = 0; }
+      } else if (c.state === 'block') {
+        c.x = mid + (c.kind === 'worker' ? Math.sin(c.t * 2.4) * 0.25 : 0);
+        if (c.t >= c.block) { c.state = 'exit'; c.t = 0; }
+      } else if (c.state === 'exit') {
+        c.x = lerp(mid, to, clamp(c.t / cfg.tout, 0, 1));
+        if (c.t >= cfg.tout) {
+          c.state = 'clear';
+          if (d > -2) { this.saves++; this.addScore(Math.round(400 + van.v * 15), 'NICE SAVE!', C.GREEN, fx); }
         }
       }
-    }
-    return false;
-  }
-
-  private checkHairpins(prevS: number, fx: Fx): boolean {
-    const v = this.van.v;
-    for (const hp of this.hairpins) {
-      if (hp.done) continue;
-      if (prevS < hp.s && this.van.s >= hp.s) {
-        hp.done = true;
-        if (v * 3.6 > hp.limit + 4) { this.crash('cliff', fx, 'cliff'); return true; }
-        this.addScore(250, '过弯!', C.CYAN, fx, `${Math.round(v * 3.6)}km/h`, 48);
+      if (d < 0.3 && d > -VAN.LENGTH && Math.abs(c.x) < 1.5) {
+        this.crash(c.kind, fx, c.kind === 'worker' ? 'bin' : 'pole');
+        return true;
       }
     }
     return false;
@@ -325,18 +362,15 @@ export class Session {
     this.status = 'crash';
     this.crashReason = reason;
     this.crashTarget = target ?? this.guessTarget();
-    fx.input.setRumble(0, 0);
-    if (reason === 'pedal') fx.input.snap(); else fx.input.pulse(1, 1, 700);
     if (reason === 'pedal') fx.audio.crack(); else fx.audio.crash();
   }
 
   private guessTarget(): CrashTarget {
-    if (this.lead && this.lead.s - this.van.s < 70) return this.lead.kind;
-    const hz = this.hazards.find((h) => h.state === 'active');
-    if (hz) return hz.kind === 'crate' ? 'crate' : 'pole';
+    if (this.lead && this.lead.solid && this.lead.s - this.van.s < 70) return this.lead.kind;
+    const c = this.crossers.find((x) => x.state !== 'idle' && x.state !== 'clear');
+    if (c) return c.kind === 'worker' ? 'bin' : 'pole';
     const f = this.finalStop;
     if (f && f.s - this.van.s < 90) return 'wall';
-    if (this.def.theme === 'mountain') return 'cliff';
     return 'pole';
   }
 
@@ -350,46 +384,22 @@ export class Session {
     this.score += tb + cb + pb;
   }
 
-  /** S/A/B/C 评级 */
   rank(): string {
     const d = this.def;
     const stops = d.events.filter((e) => e.type === 'stop').length;
-    const haz = d.events.filter((e) => e.type === 'hazard').length;
-    const hp = d.events.filter((e) => e.type === 'hairpin').length;
+    const cr = d.events.filter((e) => e.type === 'crosser').length;
     const len = this.finalStop?.s ?? 1000;
-    const target = len + stops * 850 + haz * 500 + hp * 250 + 1000 + 450 + d.par * 4 + 600;
+    const target = len + stops * 850 + cr * 550 + 1000 + 450 + d.par * 4 + 600;
     const r = this.score / target;
     return r >= 0.85 ? 'S' : r >= 0.65 ? 'A' : r >= 0.45 ? 'B' : 'C';
   }
 
-  /** HUD 目标提示 */
-  objective(): { text: string; warn: boolean } {
-    const van = this.van;
-    if (this.tailgater) {
-      const st = this.stops.find((s) => !s.done);
-      if (st?.light?.state === 'green') return { text: '绿灯', warn: true };
-      return { text: '后车!', warn: true };
-    }
-    const hz = this.hazards.find((h) => h.state === 'active');
-    if (hz) return { text: hz.kind === 'ducks' ? '鸭子!' : '货箱!', warn: true };
-    if (this.lead && this.lead.solid) {
-      const gap = this.lead.s - van.s;
-      const tg = van.v > 1 ? gap / van.v : 9;
-      return { text: `前车 ${gap.toFixed(0)}m`, warn: tg < 1.2 };
-    }
-    const hp = this.hairpins.find((h) => !h.done && h.s - van.s < 220);
-    if (hp) {
-      const over = van.v * 3.6 > hp.limit + 4;
-      return { text: `急弯 ${hp.limit}km/h · ${(hp.s - van.s).toFixed(0)}m`, warn: over };
-    }
+  objective(): string {
     const st = this.stops.find((s) => !s.done);
     if (st) {
-      const d = st.s - van.s;
-      if (d < 250) {
-        const kind = st.final ? '终点' : st.light ? (st.light.state === 'green' && !st.light.triggered ? '路口' : '红绿灯') : '停止线';
-        return { text: `${kind} ${d.toFixed(1)}m`, warn: false };
-      }
+      const d = st.s - this.van.s;
+      if (d < 150) return `${st.final ? '终点' : '停止线'} ${Math.max(0, d).toFixed(1)}m`;
     }
-    return { text: this.def.endless ? `${(van.s / 1000).toFixed(2)}km` : '', warn: false };
+    return this.def.endless ? `${(this.van.s / 1000).toFixed(2)} km` : '';
   }
 }

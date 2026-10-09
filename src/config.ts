@@ -20,11 +20,25 @@ export const PEDAL = {
 export const TRIGGER = {
   DAMP_START: 3,     // 扳机一开始的阻尼
   DAMP_END: 7,       // 接近断点前的阻尼
-  WALL: 8,           // 断点处的"硬墙"
-  CLICK_AT: 0.82,    // 踩力达到阈值的这个比例时，切换成"咔嗒"模式（越过断点阻力瞬间消失）
-  SNAP_MS: 140,      // 断裂瞬间扳机高频振动时长
-  SNAP_FREQ: 45,     // 断裂振动频率 (Hz)
-  LIMP_MS: 1600,     // 断裂后扳机完全松垮（踩空感）
+  WALL: 8,           // 断点处的"硬墙"；越过断点后扳机瞬间失去支撑
+};
+
+/** 自动驾驶 */
+export const AUTO = {
+  ACCEL: 2.6,          // 自动加速度上限 (m/s²)
+  BRAKE: 3.0,          // 自动驾驶自己能用的减速度（跟车/过弯）
+  FOLLOW_GAP: 1.6,     // 跟车时距 (s)
+  CURVE_SLOW: 0.82,    // 弯道里降到目标速度的比例
+  RESUME_DELAY: 0.8,   // 危险解除且松开刹车多久后重新接管 (s)
+  TAKEOVER_SLOWMO: 0.9,// 退出自动驾驶分镜的慢动作时长（真实秒）
+  SLOWMO_SCALE: 0.3,
+};
+
+/** 弯道：刹车空间被压缩，超过这个力车轮会崴 */
+export const CURVE = {
+  MIN: 0.012,          // 曲率超过此值视为在弯道里
+  LIMIT: 1050,         // 弯道踏板力上限 (N)
+  GRACE: 0.15,         // 超限持续多久才崴 (s)；猛踩突破 1600 时仍是踏板断
 };
 
 export const VAN = {

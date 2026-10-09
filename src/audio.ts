@@ -153,4 +153,23 @@ export class AudioEngine {
   whoosh() { this.burst('bandpass', 300, 2500, 0.4, 0.5, 1.5); }
   thud() { this.osc('sine', 90, 40, 0.6, 0.3); this.burst('lowpass', 800, 100, 0.3, 0.2); }
   select() { this.osc('square', 660, 660, 0.06, 0.05); }
+  /** 自动驾驶退出：急促三连 */
+  takeover() {
+    for (let i = 0; i < 3; i++) this.osc('square', 1250, 1250, 0.14, 0.09, i * 0.13);
+    this.osc('sawtooth', 600, 300, 0.08, 0.35, 0.4);
+  }
+  /** 自动驾驶接管：上行两音 */
+  engage() {
+    this.osc('sine', 880, 880, 0.12, 0.12);
+    this.osc('sine', 1320, 1320, 0.12, 0.2, 0.1);
+  }
+  woof() {
+    this.osc('sawtooth', 420, 180, 0.22, 0.13);
+    this.burst('bandpass', 700, 300, 0.2, 0.12, 2);
+    this.osc('sawtooth', 450, 190, 0.2, 0.13, 0.2);
+  }
+  whistle() {
+    this.osc('sine', 2200, 2600, 0.15, 0.18);
+    this.osc('sine', 2600, 2000, 0.15, 0.25, 0.2);
+  }
 }

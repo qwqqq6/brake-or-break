@@ -1,7 +1,7 @@
 import { C, ROAD } from '../config';
 import type { SpriteDef } from '../sim/road';
 import { hash } from '../util';
-import { burst, dots, font, roundRect } from './comic';
+import { burst, dots, font, roundRect, sfx } from './comic';
 
 type Ctx = CanvasRenderingContext2D;
 const lwOf = (ppm: number, k = 0.08) => Math.max(1, Math.min(6, ppm * k));
@@ -170,7 +170,7 @@ export function duckIcon(ctx: Ctx, x: number, y: number, s: number) {
 // ---------------- 动态物体 ----------------
 
 /** 前车尾部 */
-export function drawCarRear(ctx: Ctx, sx: number, sy: number, ppm: number, kind: 'car' | 'truck', color: string, braking: boolean, t: number) {
+export function drawCarRear(ctx: Ctx, sx: number, sy: number, ppm: number, kind: 'car' | 'truck', color: string, braking: boolean, t: number, mood: 'none' | 'sleep' | 'wake' = 'none') {
   const truck = kind === 'truck';
   const w = (truck ? 2.3 : 1.85) * ppm, h = (truck ? 3.1 : 1.45) * ppm;
   const lw = Math.max(1.5, ppm * 0.06);
@@ -224,67 +224,91 @@ export function drawCarRear(ctx: Ctx, sx: number, sy: number, ppm: number, kind:
       ctx.fillStyle = g; ctx.fillRect(lx - r, ly - r, r * 2, r * 2);
     }
     ctx.restore();
-    if (ppm > 10 && Math.floor(t * 6) % 2 === 0) burst(ctx, sx, y0 - 0.4 * ppm, 0.5 * ppm, 0.3 * ppm, 8, C.RED, 2, 0, 2);
+    if (mood === 'none' && ppm > 10 && Math.floor(t * 6) % 2 === 0) burst(ctx, sx, y0 - 0.4 * ppm, 0.5 * ppm, 0.3 * ppm, 8, C.RED, 2, 0, 2);
+  }
+  if (mood !== 'none' && ppm > 4) {
+    // 司机状态气泡：睡着 Zzz / 惊醒 !?
+    const bx = sx + w * 0.25, by = y0 - 0.9 * ppm;
+    const r = Math.max(14, 0.75 * ppm);
+    ctx.beginPath(); ctx.ellipse(bx, by, r * 1.3, r, 0, 0, Math.PI * 2);
+    ctx.fillStyle = C.WHITE; ctx.fill(); ctx.lineWidth = Math.max(2, ppm * 0.06); ctx.strokeStyle = C.INK; ctx.stroke();
+    for (let i = 0; i < 2; i++) { ctx.beginPath(); ctx.arc(bx - r * (0.9 + i * 0.45), by + r * (1 + i * 0.5), r * (0.22 - i * 0.08), 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+    if (mood === 'sleep') {
+      const bob = Math.sin(t * 3) * r * 0.08;
+      sfx(ctx, 'Zzz', bx, by + bob, r * 0.95, C.BLUE, { rot: -0.15, lw: Math.max(2, r * 0.12) });
+    } else sfx(ctx, '!?', bx, by, r * 1.1, C.RED, { lw: Math.max(2, r * 0.12) });
   }
 }
 
-/** 鸭子过马路：p 0..1 从右到左 */
-export function drawDucks(ctx: Ctx, sx: number, sy: number, ppm: number, p: number, t: number) {
-  const span = ROAD.HALF_W * 2 + 3;
-  const baseX = (ROAD.HALF_W + 1.5) - p * span;
-  const list = [[0, 0.5, '#ffffff'], [0.9, 0.3, C.YELLOW], [1.5, 0.3, C.YELLOW], [2.1, 0.3, C.YELLOW]] as const;
-  for (const [off, size, col] of list) {
-    const x = sx + (baseX + off) * ppm;
-    const bob = Math.abs(Math.sin(t * 10 + off * 3)) * 0.06 * ppm;
-    const s = size * ppm;
-    ctx.lineWidth = Math.max(1, ppm * 0.04); ctx.strokeStyle = C.INK;
-    ctx.fillStyle = C.ORANGE; ctx.fillRect(x - s * 0.2, sy - s * 0.3, s * 0.1, s * 0.3); ctx.fillRect(x + s * 0.1, sy - s * 0.3, s * 0.1, s * 0.3);
-    ctx.beginPath(); ctx.ellipse(x, sy - s * 0.75 - bob, s * 0.7, s * 0.45, 0, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.arc(x - s * 0.45, sy - s * 1.35 - bob, s * 0.33, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = C.ORANGE; ctx.beginPath(); ctx.moveTo(x - s * 0.75, sy - s * 1.38 - bob); ctx.lineTo(x - s * 1.05, sy - s * 1.3 - bob); ctx.lineTo(x - s * 0.75, sy - s * 1.22 - bob); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = C.INK; ctx.beginPath(); ctx.arc(x - s * 0.52, sy - s * 1.42 - bob, Math.max(1, s * 0.06), 0, Math.PI * 2); ctx.fill();
-  }
+/** 环卫工：橙色工作服 + 反光条 + 扫帚，正面朝向镜头 */
+export function drawWorker(ctx: Ctx, sx: number, sy: number, ppm: number, t: number, moving: boolean) {
+  const s = ppm;
+  const lw = Math.max(1.5, s * 0.05);
+  const step = moving ? Math.sin(t * 12) : 0;
+  const sweep = moving ? 0 : Math.sin(t * 5);
+  ctx.save();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = C.INK; ctx.lineWidth = lw;
+  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(sx, sy, 0.45 * s, 0.1 * s, 0, 0, Math.PI * 2); ctx.fill();
+  // 扫帚
+  ctx.save(); ctx.translate(sx + 0.35 * s, sy - 0.95 * s); ctx.rotate(0.35 + sweep * 0.35);
+  ctx.strokeStyle = C.BROWN; ctx.lineWidth = Math.max(1.5, 0.06 * s); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 1.0 * s); ctx.stroke();
+  ctx.fillStyle = '#e9c46a'; ctx.beginPath(); ctx.moveTo(-0.2 * s, 1.0 * s); ctx.lineTo(0.2 * s, 1.0 * s); ctx.lineTo(0.28 * s, 1.25 * s); ctx.lineTo(-0.28 * s, 1.25 * s); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = C.INK; ctx.lineWidth = lw; ctx.stroke();
+  ctx.restore();
+  // 腿
+  ctx.fillStyle = '#e8590c';
+  ctx.fillRect(sx - 0.2 * s, sy - 0.85 * s + step * 0.04 * s, 0.17 * s, 0.85 * s); ctx.strokeRect(sx - 0.2 * s, sy - 0.85 * s + step * 0.04 * s, 0.17 * s, 0.85 * s);
+  ctx.fillRect(sx + 0.03 * s, sy - 0.85 * s - step * 0.04 * s, 0.17 * s, 0.85 * s); ctx.strokeRect(sx + 0.03 * s, sy - 0.85 * s - step * 0.04 * s, 0.17 * s, 0.85 * s);
+  // 身体
+  roundRect(ctx, sx - 0.3 * s, sy - 1.45 * s, 0.6 * s, 0.7 * s, 0.1 * s);
+  ctx.fillStyle = C.ORANGE; ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#e9ecef';
+  ctx.fillRect(sx - 0.3 * s, sy - 1.2 * s, 0.6 * s, 0.07 * s); ctx.fillRect(sx - 0.3 * s, sy - 0.98 * s, 0.6 * s, 0.07 * s);
+  // 手臂
+  ctx.strokeStyle = C.INK; ctx.lineWidth = 0.16 * s + lw;
+  ctx.beginPath(); ctx.moveTo(sx - 0.28 * s, sy - 1.35 * s); ctx.lineTo(sx - 0.38 * s, sy - 0.95 * s); ctx.moveTo(sx + 0.28 * s, sy - 1.35 * s); ctx.lineTo(sx + 0.36 * s, sy - 0.98 * s); ctx.stroke();
+  ctx.strokeStyle = C.ORANGE; ctx.lineWidth = 0.16 * s; ctx.stroke();
+  ctx.lineWidth = lw; ctx.strokeStyle = C.INK;
+  // 头 + 帽子
+  ctx.fillStyle = '#f2c29b'; ctx.beginPath(); ctx.arc(sx, sy - 1.62 * s, 0.17 * s, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = C.ORANGE; ctx.beginPath(); ctx.arc(sx, sy - 1.66 * s, 0.18 * s, Math.PI, Math.PI * 2); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillRect(sx - 0.24 * s, sy - 1.68 * s, 0.48 * s, 0.05 * s);
+  if (s > 18) { ctx.fillStyle = C.INK; ctx.beginPath(); ctx.arc(sx - 0.06 * s, sy - 1.6 * s, 0.02 * s, 0, Math.PI * 2); ctx.arc(sx + 0.06 * s, sy - 1.6 * s, 0.02 * s, 0, Math.PI * 2); ctx.fill(); }
+  ctx.restore();
 }
 
-/** 货箱：p 0..1 下落，1..2 被移走 */
-export function drawCrate(ctx: Ctx, sx: number, sy: number, ppm: number, p: number) {
-  const s = 1.3 * ppm;
-  const fall = p < 1 ? (1 - p * p) * 6 * ppm : 0;
-  const slide = p > 1 ? (p - 1) * 6 * ppm : 0;
-  const x = sx - s / 2 + slide, y = sy - s - fall;
-  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(sx + slide, sy, s * 0.7, s * 0.12, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#c68642'; ctx.fillRect(x, y, s, s);
-  ctx.lineWidth = Math.max(1.5, ppm * 0.07); ctx.strokeStyle = C.INK; ctx.strokeRect(x, y, s, s);
-  ctx.strokeStyle = '#8a5a2b';
-  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + s, y + s); ctx.moveTo(x + s, y); ctx.lineTo(x, y + s); ctx.stroke();
-  ctx.strokeStyle = C.INK; ctx.strokeRect(x + s * 0.08, y + s * 0.08, s * 0.84, s * 0.84);
-  if (ppm > 10) { ctx.fillStyle = C.RED; ctx.font = font('易碎', s * 0.22); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('易碎', x + s / 2, y + s / 2); }
+/** 小狗：侧面，dir = 奔跑方向（+1 向右） */
+export function drawDog(ctx: Ctx, sx: number, sy: number, ppm: number, t: number, dir: number, moving: boolean) {
+  const s = ppm;
+  const lw = Math.max(1.5, s * 0.04);
+  const run = moving ? Math.sin(t * 22) : 0;
+  ctx.save();
+  ctx.translate(sx, sy); ctx.scale(dir, 1);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.strokeStyle = C.INK; ctx.lineWidth = lw;
+  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0, 0, 0.45 * s, 0.07 * s, 0, 0, Math.PI * 2); ctx.fill();
+  const body = '#c68642';
+  // 腿
+  ctx.strokeStyle = C.INK; ctx.lineWidth = 0.09 * s + lw;
+  const legs = [[-0.25, run], [-0.15, -run], [0.2, -run], [0.3, run]];
+  ctx.beginPath(); for (const [lx, ph] of legs) { ctx.moveTo(lx * s, -0.28 * s); ctx.lineTo((lx + ph * 0.08) * s, -0.02 * s); } ctx.stroke();
+  ctx.strokeStyle = body; ctx.lineWidth = 0.09 * s; ctx.stroke();
+  ctx.strokeStyle = C.INK; ctx.lineWidth = lw;
+  // 尾巴
+  ctx.beginPath(); ctx.moveTo(-0.33 * s, -0.4 * s); ctx.quadraticCurveTo(-0.5 * s, -0.55 * s - run * 0.05 * s, -0.45 * s, -0.68 * s); ctx.lineWidth = 0.07 * s + lw; ctx.stroke(); ctx.strokeStyle = body; ctx.lineWidth = 0.07 * s; ctx.stroke();
+  ctx.strokeStyle = C.INK; ctx.lineWidth = lw;
+  // 身体
+  ctx.beginPath(); ctx.ellipse(0, -0.38 * s, 0.38 * s, 0.17 * s, 0, 0, Math.PI * 2); ctx.fillStyle = body; ctx.fill(); ctx.stroke();
+  // 头
+  ctx.beginPath(); ctx.arc(0.38 * s, -0.55 * s, 0.15 * s, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(0.52 * s, -0.5 * s, 0.09 * s, 0.06 * s, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = C.INK; ctx.beginPath(); ctx.arc(0.6 * s, -0.51 * s, 0.025 * s, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(0.42 * s, -0.6 * s, 0.022 * s, 0, Math.PI * 2); ctx.fill();
+  // 耳朵
+  ctx.fillStyle = '#7a4a2a'; ctx.beginPath(); ctx.ellipse(0.3 * s, -0.62 * s, 0.05 * s, 0.11 * s, 0.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // 项圈
+  ctx.strokeStyle = C.RED; ctx.lineWidth = 0.035 * s; ctx.beginPath(); ctx.arc(0.36 * s, -0.53 * s, 0.13 * s, 1.6, 2.6); ctx.stroke();
+  ctx.restore();
 }
-
-/** 红绿灯（悬臂式，立在右侧） */
-export function drawLight(ctx: Ctx, sx: number, sy: number, ppm: number, state: 'green' | 'yellow' | 'red', t: number) {
-  const px = sx + (ROAD.HALF_W + 0.8) * ppm;
-  const top = sy - 6 * ppm;
-  ctx.strokeStyle = '#2b2d42'; ctx.lineWidth = Math.max(1.5, 0.22 * ppm);
-  ctx.beginPath(); ctx.moveTo(px, sy); ctx.lineTo(px, top); ctx.lineTo(sx + 0.5 * ppm, top); ctx.stroke();
-  const bx = sx + 1.2 * ppm, bw = 0.6 * ppm, bh = 1.6 * ppm;
-  ctx.fillStyle = '#222'; ctx.fillRect(bx - bw / 2, top, bw, bh);
-  ctx.lineWidth = Math.max(1, 0.06 * ppm); ctx.strokeStyle = C.INK; ctx.strokeRect(bx - bw / 2, top, bw, bh);
-  const cols: ['red' | 'yellow' | 'green', string][] = [['red', '#ff3b3b'], ['yellow', '#ffd23f'], ['green', '#3ddc84']];
-  cols.forEach(([k, c], i) => {
-    const cy = top + (0.3 + i * 0.5) * ppm, on = k === state && (k !== 'yellow' || Math.floor(t * 4) % 2 === 0);
-    ctx.beginPath(); ctx.arc(bx, cy, 0.19 * ppm, 0, Math.PI * 2);
-    ctx.fillStyle = on ? c : '#444'; ctx.fill();
-    if (on) {
-      ctx.save(); ctx.globalCompositeOperation = 'lighter';
-      const g = ctx.createRadialGradient(bx, cy, 0, bx, cy, 1.4 * ppm);
-      g.addColorStop(0, c + 'aa'); g.addColorStop(1, c + '00');
-      ctx.fillStyle = g; ctx.fillRect(bx - 1.4 * ppm, cy - 1.4 * ppm, 2.8 * ppm, 2.8 * ppm);
-      ctx.restore();
-    }
-  });
-}
-
 /** 终点仓库墙 */
 export function drawWall(ctx: Ctx, sx: number, sy: number, ppm: number) {
   const w = (ROAD.HALF_W * 2 + 14) * ppm, h = 9 * ppm;

@@ -1,7 +1,6 @@
 import { C, H, W } from '../config';
 import type { LevelDef } from '../levels';
 import type { Input } from '../input/input';
-import type { SaveData } from '../save';
 import { clamp, easeOutBack, fmtTime } from '../util';
 import { bubble, burst, caption, dots, font, panel, sfx, speedLines } from './comic';
 import { drawFace, drawVan } from './crash';
@@ -37,37 +36,6 @@ export function drawTitle(ctx: Ctx, t: number, items: string[], sel: number) {
     ctx.lineWidth = 4; ctx.strokeStyle = C.INK; ctx.strokeRect(-170, -24, 340, 50);
     ctx.fillStyle = on ? C.YELLOW : C.INK; ctx.font = font(it, 26); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(it, 0, 2);
-    ctx.restore();
-  });
-}
-
-export function drawSelect(ctx: Ctx, t: number, levels: LevelDef[], sel: number, save: SaveData) {
-  comicBg(ctx, C.CYAN, 'rgba(29,143,209,0.4)', t);
-  sfx(ctx, '选择关卡', 640, 60, 58, C.YELLOW, { rot: -0.03 });
-  const all = [...levels.map((l) => l.id), 99];
-  all.forEach((id, i) => {
-    const col = i % 3, row = Math.floor(i / 3);
-    const x = 70 + col * 390, y = 110 + row * 196;
-    const w = 360, h = 176;
-    const on = i === sel;
-    const lv = id === 99 ? null : levels.find((l) => l.id === id)!;
-    const pts = [x, y + (col % 2 ? 8 : 0), x + w, y + (col % 2 ? 0 : 8), x + w - 6, y + h, x + 6, y + h - 4];
-    ctx.save();
-    if (on) { ctx.translate(x + w / 2, y + h / 2); ctx.scale(1.04, 1.04); ctx.rotate(-0.015); ctx.translate(-x - w / 2, -y - h / 2); }
-    panel(ctx, pts, () => {
-      ctx.fillStyle = on ? C.YELLOW : C.PAPER; ctx.fillRect(x, y, w, h);
-      ctx.fillStyle = dots(ctx, on ? 'rgba(230,57,70,0.3)' : 'rgba(0,0,0,0.1)', 9, 2.2); ctx.fillRect(x, y, w, h);
-      sfx(ctx, lv ? lv.code : '∞', x + 52, y + 58, 66, on ? C.RED : C.WHITE, { rot: -0.08 });
-      ctx.fillStyle = C.INK; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-      ctx.font = font('中', 28); ctx.fillText(lv ? lv.name : '无尽模式', x + 110, y + 56);
-      ctx.font = "18px 'Bangers', Impact"; ctx.fillText(lv ? lv.subtitle : 'ENDLESS', x + 112, y + 80);
-      ctx.font = font('中', 14);
-      wrap(ctx, lv ? lv.desc : '路没有尽头，事件越来越密，车也越来越重。', x + 20, y + 110, w - 40, 20, 2);
-      const best = lv ? save.best[lv.id] : null;
-      const txt = lv ? (best ? `最佳 ${best.score.toLocaleString()}  评级 ${best.rank}` : '未通关') : `最佳 ${save.endlessBest.toLocaleString()}`;
-      ctx.font = font(txt, 15); ctx.fillStyle = best || !lv ? C.INK : C.GREY; ctx.fillText(txt, x + 20, y + h - 14);
-      if (best) sfx(ctx, best.rank, x + w - 40, y + h - 36, 44, best.rank === 'S' ? C.YELLOW : C.WHITE, { rot: 0.15 });
-    });
     ctx.restore();
   });
 }
@@ -176,8 +144,8 @@ export function drawResult(ctx: Ctx, t: number, r: ResultData, input: Input, cov
   ctx.restore();
   // 操作
   const opts = r.success && !r.endless
-    ? `${input.glyph('confirm')} 下一关   ${input.glyph('alt')} 再来一次   ${input.glyph('back')} 关卡选择`
-    : `${input.glyph('confirm')} 再来一期   ${input.glyph('back')} 关卡选择`;
+    ? `${input.glyph('confirm')} 无尽模式   ${input.glyph('alt')} 再来一次   ${input.glyph('back')} 返回`
+    : `${input.glyph('confirm')} 再来一期   ${input.glyph('back')} 返回`;
   if (t > 0.6) caption(ctx, opts, 1020, 652, { size: 17, bg: C.WHITE });
 }
 

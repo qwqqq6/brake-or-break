@@ -1,6 +1,6 @@
-import { C, H, PEDAL, W } from '../config';
+import { C, CURVE, H, PEDAL, W } from '../config';
 import { clamp } from '../util';
-import { caption, dots, font, hatch, roundRect, sfx } from './comic';
+import { caption, dots, font, hatch, roundRect } from './comic';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -12,7 +12,8 @@ export const PEDAL_CAM = { x: 905, y: 452, w: 368, h: 262 };
 export interface CockpitView {
   force: number; threshold: number; peak: number; speed: number; temp: number; fatigue: number;
   coffee: number; diceLon: number; diceLat: number; wheel: number; t: number;
-  locked: boolean; fade: number; tailgater: boolean; honk: boolean; mass: number;
+  locked: boolean; fade: number; mass: number;
+  auto: boolean; inCurve: boolean;
 }
 
 let staticLayer: HTMLCanvasElement | null = null;
@@ -77,16 +78,17 @@ function buildStatic(): HTMLCanvasElement {
 export function drawCockpit(ctx: Ctx, v: CockpitView) {
   if (!staticLayer) staticLayer = buildStatic();
   ctx.drawImage(staticLayer, 0, 0);
-  drawMirror(ctx, v);
+  drawMirror(ctx);
   drawDiceTop(ctx, v);
   drawCup(ctx, v);
   drawSpeedo(ctx, v);
   drawBars(ctx, v);
+  drawAutopilot(ctx, v);
   drawWheel(ctx, v);
   drawForceGauge(ctx, v);
 }
 
-function drawMirror(ctx: Ctx, v: CockpitView) {
+function drawMirror(ctx: Ctx) {
   ctx.save();
   roundRect(ctx, 530, 44, 220, 54, 12);
   ctx.fillStyle = '#2b2d42'; ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = C.INK; ctx.stroke();
@@ -94,13 +96,6 @@ function drawMirror(ctx: Ctx, v: CockpitView) {
   const g = ctx.createLinearGradient(0, 50, 0, 92); g.addColorStop(0, '#9fd8ef'); g.addColorStop(1, '#6c7a89');
   ctx.fillStyle = g; ctx.fillRect(538, 50, 204, 42);
   ctx.fillStyle = '#555b66'; ctx.beginPath(); ctx.moveTo(600, 92); ctx.lineTo(680, 92); ctx.lineTo(648, 72); ctx.lineTo(632, 72); ctx.fill();
-  if (v.tailgater) {
-    // 后车车头
-    ctx.fillStyle = '#e9ecef'; roundRect(ctx, 590, 62, 100, 34, 8); ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = C.INK; ctx.stroke();
-    ctx.fillStyle = '#243b55'; ctx.fillRect(602, 54, 76, 14); ctx.strokeRect(602, 54, 76, 14);
-    ctx.fillStyle = C.YELLOW; ctx.beginPath(); ctx.arc(604, 78, 7, 0, Math.PI * 2); ctx.arc(676, 78, 7, 0, Math.PI * 2); ctx.fill();
-    if (v.honk) sfx(ctx, 'HONK!', 640, 70, 26, C.RED, { rot: -0.1 });
-  }
   ctx.restore();
   ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(545, 52, 60, 4);
 }
@@ -185,6 +180,35 @@ function drawBars(ctx: Ctx, v: CockpitView) {
   if (v.mass > 2000) { ctx.fillStyle = C.ORANGE; ctx.font = font('载重', 12); ctx.textAlign = 'center'; ctx.fillText(`载重 ${Math.round(v.mass)}kg`, 150, 712); }
 }
 
+/** 仪表台上的自动驾驶小屏 */
+function drawAutopilot(ctx: Ctx, v: CockpitView) {
+  const x = 372, y = 500, w = 150, h = 48;
+  ctx.save();
+  ctx.translate(x + w / 2, y + h / 2); ctx.rotate(-0.04); ctx.translate(-x - w / 2, -y - h / 2);
+  roundRect(ctx, x - 5, y - 5, w + 10, h + 10, 12); ctx.fillStyle = C.INK; ctx.fill();
+  roundRect(ctx, x, y, w, h, 8);
+  const on = v.auto;
+  const blink = Math.floor(v.t * 5) % 2 === 0;
+  ctx.fillStyle = on ? '#0d2b1f' : blink ? '#5a0d14' : '#22080b'; ctx.fill();
+  ctx.lineWidth = 3; ctx.strokeStyle = on ? C.GREEN : C.RED; ctx.stroke();
+  // 方向盘图标
+  const ix = x + 24, iy = y + h / 2;
+  ctx.strokeStyle = on ? C.GREEN : C.RED; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(ix, iy, 13, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ix - 13, iy); ctx.lineTo(ix + 13, iy); ctx.moveTo(ix, iy); ctx.lineTo(ix, iy + 13); ctx.stroke();
+  if (!on) { ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(ix - 15, iy - 15); ctx.lineTo(ix + 15, iy + 15); ctx.stroke(); }
+  ctx.fillStyle = on ? C.GREEN : C.WHITE;
+  ctx.font = font('自动驾驶', 17); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(on ? '自动驾驶中' : '自动驾驶 OFF', x + 44, iy - 1);
+  if (on) {
+    for (let i = 0; i < 3; i++) {
+      ctx.globalAlpha = (Math.floor(v.t * 4) % 3) === i ? 1 : 0.3;
+      ctx.fillRect(x + 46 + i * 9, y + h - 9, 5, 4);
+    }
+  }
+  ctx.restore();
+}
+
 function drawWheel(ctx: Ctx, v: CockpitView) {
   const cx = 640, cy = 910, r = 300;
   ctx.save();
@@ -218,6 +242,15 @@ function drawForceGauge(ctx: Ctx, v: CockpitView) {
   zone(0, PEDAL.FATIGUE_START, C.GREEN);
   zone(PEDAL.FATIGUE_START, thr, C.YELLOW);
   zone(thr, PEDAL.FMAX, C.RED);
+  if (v.inCurve) {
+    // 弯道：刹车空间被压缩
+    zone(CURVE.LIMIT, thr, C.ORANGE);
+    ctx.fillStyle = hatch(ctx, 'rgba(0,0,0,0.35)', 6, 2);
+    ctx.beginPath(); ctx.arc(x, y, r - 2, toA(CURVE.LIMIT), toA(thr)); ctx.arc(x, y, r - 22, toA(thr), toA(CURVE.LIMIT), true); ctx.closePath(); ctx.fill();
+    const ca = toA(CURVE.LIMIT);
+    ctx.strokeStyle = C.ORANGE; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(x + Math.cos(ca) * (r - 40), y + Math.sin(ca) * (r - 40)); ctx.lineTo(x + Math.cos(ca) * (r + 8), y + Math.sin(ca) * (r + 8)); ctx.stroke();
+  }
   ctx.fillStyle = hatch(ctx, 'rgba(0,0,0,0.5)', 6, 2);
   ctx.beginPath(); ctx.arc(x, y, r - 2, toA(thr), toA(PEDAL.FMAX)); ctx.arc(x, y, r - 22, toA(PEDAL.FMAX), toA(thr), true); ctx.closePath(); ctx.fill();
   // 刻度
