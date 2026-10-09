@@ -67,7 +67,7 @@ export function renderSession(ctx: Ctx, s: Session, t: number, input: Input) {
     travel: s.pedal.travel, force: s.pedal.force, threshold: s.pedal.threshold, fatigue: s.pedal.fatigue, t,
   });
 
-  drawHud(ctx, s, t, input);
+  drawHud(ctx, s, t);
   ctx.restore();
 
   if (s.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${s.flash})`; ctx.fillRect(0, 0, W, H); }
@@ -110,17 +110,16 @@ function drawRain(ctx: Ctx, t: number, v: number) {
   ctx.restore();
 }
 
-function drawHud(ctx: Ctx, s: Session, t: number, input: Input) {
+function drawHud(ctx: Ctx, s: Session, t: number) {
   const d = s.def;
   caption(ctx, `${d.code} · ${d.name}`, 136, 58, { size: 16, align: 'left', bg: C.WHITE });
   caption(ctx, `SCORE ${Math.floor(s.score).toLocaleString()}`, 136, 92, { size: 26, align: 'left' });
   if (s.combo > 1) caption(ctx, `COMBO x${s.combo}`, 136, 136, { size: 18, align: 'left', bg: C.CYAN });
   caption(ctx, `TIME ${fmtTime(s.time)}${d.par ? `  /  PAR ${fmtTime(d.par)}` : ''}`, W - 136, 58, { size: 18, align: 'right', bg: C.WHITE });
-  if (input.source === 'kb' || !input.padConnected) caption(ctx, '空格=刹车  ↑=油门  （推荐用手柄）', W - 136, 94, { size: 13, align: 'right', bg: C.PAPER });
 
   const ob = s.objective();
   const warnBlink = ob.warn && Math.floor(t * 4) % 2 === 0;
-  caption(ctx, ob.text, W / 2, 112, { size: 22, bg: warnBlink ? C.RED : C.YELLOW, fg: warnBlink ? C.WHITE : C.INK });
+  if (ob.text) caption(ctx, ob.text, W / 2, 112, { size: 22, bg: warnBlink ? C.RED : C.YELLOW, fg: warnBlink ? C.WHITE : C.INK });
 
   // 弹出字
   s.popups.forEach((p, i) => {
@@ -147,7 +146,6 @@ function drawHud(ctx: Ctx, s: Session, t: number, input: Input) {
       sfx(ctx, label, 0, 4, 110, n >= 1 ? C.RED : C.WHITE);
       ctx.restore();
     }
-    caption(ctx, `试踩一下：${input.brakeName()} 刹车 · ${input.gasName()} 油门（倒计时内不会断）`, W / 2, 380, { size: 18, bg: C.WHITE });
   }
   if (s.status === 'run' && s.time < 0.8) {
     ctx.save(); ctx.translate(W / 2, 270); burst(ctx, 0, 0, 130, 90, 14, C.GREEN, 6, 0, 3); sfx(ctx, 'GO!', 0, 4, 110, C.WHITE); ctx.restore();

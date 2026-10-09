@@ -47,12 +47,6 @@ export class CrashSeq {
       const fl = clamp(1 - (t - T.p4) / 0.25, 0, 1);
       if (fl > 0) { ctx.fillStyle = `rgba(255,255,255,${fl})`; ctx.fillRect(0, 0, W, H); }
     }
-    if (t > 1.0) {
-      ctx.save(); ctx.globalAlpha = 0.8;
-      ctx.fillStyle = C.WHITE; ctx.font = "16px 'Microsoft YaHei', sans-serif"; ctx.textAlign = 'right';
-      ctx.fillText('按 ✕ / Enter 跳过', W - 24, H - 18);
-      ctx.restore();
-    }
   }
 
   private pop(ctx: Ctx, pts: number[], lt: number, fn: () => void) {

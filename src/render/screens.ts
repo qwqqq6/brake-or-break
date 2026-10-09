@@ -1,11 +1,10 @@
-import { C, H, PEDAL, W } from '../config';
+import { C, H, W } from '../config';
 import type { LevelDef } from '../levels';
 import type { Input } from '../input/input';
 import type { SaveData } from '../save';
 import { clamp, easeOutBack, fmtTime } from '../util';
 import { bubble, burst, caption, dots, font, panel, sfx, speedLines } from './comic';
 import { drawFace, drawVan } from './crash';
-import { drawPedalCam } from './pedalcam';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -15,7 +14,7 @@ function comicBg(ctx: Ctx, a: string, b: string, t: number) {
   speedLines(ctx, W / 2, H / 2, 260, 1000, 80, 'rgba(255,255,255,0.25)', Math.floor(t * 2), 5);
 }
 
-export function drawTitle(ctx: Ctx, t: number, items: string[], sel: number, input: Input, hidStatus: string) {
+export function drawTitle(ctx: Ctx, t: number, items: string[], sel: number) {
   comicBg(ctx, C.YELLOW, 'rgba(230,57,70,0.35)', t);
   burst(ctx, 640, 230, 520, 330, 24, C.RED, 8, t * 0.05, 2);
   ctx.save(); ctx.translate(640, 170); ctx.rotate(-0.05);
@@ -40,18 +39,9 @@ export function drawTitle(ctx: Ctx, t: number, items: string[], sel: number, inp
     ctx.fillText(it, 0, 2);
     ctx.restore();
   });
-  const pad = input.padConnected ? `🎮 已连接：${input.padName.slice(0, 40)}` : '🎮 未检测到手柄：连接后按任意键激活（或用键盘游玩）';
-  caption(ctx, pad, 20, 668, { size: 15, align: 'left', bg: input.padConnected ? C.GREEN : C.WHITE });
-  const needHid = input.padConnected && hidStatus.startsWith('未启用');
-  if (needHid) {
-    const blink = Math.floor(t * 2.5) % 2 === 0;
-    caption(ctx, '⚠ 点这里 / 按 H 启用自适应扳机（阻尼 + 断裂"嘎巴"手感）', 20, 626, { size: 17, align: 'left', bg: blink ? C.RED : C.YELLOW, fg: blink ? C.WHITE : C.INK });
-  } else caption(ctx, `自适应扳机：${hidStatus}`, 20, 630, { size: 15, align: 'left', bg: C.WHITE });
-  ctx.fillStyle = C.INK; ctx.font = font('确认', 16); ctx.textAlign = 'right';
-  ctx.fillText(`${input.glyph('up')}${input.glyph('down')} 选择   ${input.glyph('confirm')} 确认   M 静音   点击画面开启声音`, W - 20, H - 16);
 }
 
-export function drawSelect(ctx: Ctx, t: number, levels: LevelDef[], sel: number, save: SaveData, input: Input) {
+export function drawSelect(ctx: Ctx, t: number, levels: LevelDef[], sel: number, save: SaveData) {
   comicBg(ctx, C.CYAN, 'rgba(29,143,209,0.4)', t);
   sfx(ctx, '选择关卡', 640, 60, 58, C.YELLOW, { rot: -0.03 });
   const all = [...levels.map((l) => l.id), 99];
@@ -80,8 +70,6 @@ export function drawSelect(ctx: Ctx, t: number, levels: LevelDef[], sel: number,
     });
     ctx.restore();
   });
-  ctx.fillStyle = C.INK; ctx.font = font('确认', 16); ctx.textAlign = 'right';
-  ctx.fillText(`方向键选择   ${input.glyph('confirm')} 开始   ${input.glyph('back')} 返回`, W - 20, H - 14);
 }
 
 function wrap(ctx: Ctx, text: string, x: number, y: number, maxW: number, lh: number, maxLines = 9) {
@@ -97,24 +85,15 @@ export function drawBrief(ctx: Ctx, t: number, lv: LevelDef, input: Input) {
   comicBg(ctx, C.PAPER, 'rgba(29,143,209,0.25)', t);
   const k = easeOutBack(clamp(t * 3, 0, 1));
   ctx.save(); ctx.translate(640, 360); ctx.scale(k, k); ctx.translate(-640, -360);
-  panel(ctx, [60, 60, 760, 40, 740, 660, 80, 680], () => {
+  panel(ctx, [60, 60, 760, 40, 740, 450, 80, 470], () => {
     ctx.fillStyle = C.WHITE; ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = dots(ctx, 'rgba(0,0,0,0.08)', 8, 2); ctx.fillRect(0, 0, W, H);
     sfx(ctx, `LEVEL ${lv.code}`, 220, 110, 48, C.RED, { rot: -0.05 });
     ctx.fillStyle = C.INK; ctx.textAlign = 'left'; ctx.font = font('中', 50); ctx.fillText(lv.name, 110, 200);
     ctx.font = "24px 'Bangers', Impact"; ctx.fillText(lv.subtitle, 114, 232);
-    ctx.font = font('中', 20); wrap(ctx, lv.desc, 110, 290, 600, 30, 3);
-    caption(ctx, '提示', 110, 380, { size: 18, align: 'left', bg: C.YELLOW });
-    ctx.fillStyle = C.INK; ctx.font = font('中', 18); ctx.textAlign = 'left';
-    lv.tips.forEach((tip, i) => { ctx.fillText(`● ${tip}`, 120, 446 + i * 38); });
-    const tags: string[] = [];
-    if (lv.rain) tags.push('雨天 低附着');
-    if (lv.cargo) tags.push(`载货 +${lv.cargo}kg`);
-    if (lv.sky === 'night') tags.push('夜间');
-    if (lv.tailgater) tags.push('后车跟随');
-    tags.forEach((tg, i) => caption(ctx, tg, 110 + i * 150, 590, { size: 16, align: 'left', bg: C.RED, fg: C.WHITE }));
+    ctx.font = font('中', 24); wrap(ctx, lv.desc, 110, 300, 590, 38, 4);
   });
-  panel(ctx, [790, 70, 1220, 90, 1230, 450, 780, 430], () => {
+  panel(ctx, [790, 70, 1220, 90, 1230, 470, 780, 450], () => {
     ctx.fillStyle = C.CYAN; ctx.fillRect(0, 0, W, H);
     speedLines(ctx, 1005, 260, 100, 400, 50, 'rgba(255,255,255,0.5)', 4, 3);
     drawFace(ctx, 1005, 280, 0.8, 0.2);
@@ -122,9 +101,7 @@ export function drawBrief(ctx: Ctx, t: number, lv: LevelDef, input: Input) {
   if (lv.quote) bubble(ctx, `销售：${lv.quote}`, 990, 132, 19, 1215, 200);
   ctx.restore();
   const blink = Math.floor(t * 2.5) % 2 === 0;
-  if (blink) sfx(ctx, `按 ${input.glyph('confirm')} 出发!`, 1005, 540, 48, C.YELLOW, { rot: -0.04 });
-  ctx.fillStyle = C.INK; ctx.font = font('返回', 16); ctx.textAlign = 'right';
-  ctx.fillText(`${input.glyph('back')} 返回`, W - 20, H - 14);
+  if (blink) sfx(ctx, `${input.glyph('confirm')} 出发!`, 640, 580, 64, C.YELLOW, { rot: -0.04 });
 }
 
 export interface ResultData {
@@ -218,46 +195,3 @@ export function drawPause(ctx: Ctx, items: string[], sel: number) {
   });
 }
 
-export interface CalibView { raw: number; rawGas: number; max: number; force: number; travel: number; t: number; padConnected: boolean; hid: string }
-
-export function drawCalib(ctx: Ctx, v: CalibView, input: Input) {
-  comicBg(ctx, C.PAPER, 'rgba(29,143,209,0.2)', v.t);
-  sfx(ctx, '手柄校准', 640, 60, 58, C.YELLOW, { rot: -0.03 });
-  panel(ctx, [60, 110, 640, 100, 650, 600, 50, 610], () => {
-    ctx.fillStyle = C.WHITE; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = C.INK; ctx.textAlign = 'left'; ctx.font = font('中', 20);
-    const lines = [
-      v.padConnected ? '① 把 L2 慢慢按到底，再松开' : '① 请先连接 PS5 手柄，按任意键激活',
-      '② 观察右边的踏板：力会随行程非线性增加',
-      '③ 停在 1500N 附近；踩过 1600N 体验一次"嘎巴"（这里不会失败）',
-      `④ 按 ${input.glyph('confirm')} 保存校准   ${input.glyph('back')} 返回`,
-    ];
-    lines.forEach((l, i) => ctx.fillText(l, 90, 160 + i * 40));
-    const bar = (label: string, val: number, y: number, col: string) => {
-      ctx.fillStyle = C.INK; ctx.font = font(label, 18); ctx.fillText(label, 90, y - 8);
-      ctx.fillStyle = '#ddd'; ctx.fillRect(90, y, 500, 26); ctx.fillStyle = col; ctx.fillRect(90, y, 500 * clamp(val, 0, 1), 26);
-      ctx.lineWidth = 3; ctx.strokeStyle = C.INK; ctx.strokeRect(90, y, 500, 26);
-      ctx.font = "20px 'Bangers', Impact"; ctx.fillStyle = C.INK; ctx.fillText(val.toFixed(3), 600, y + 21);
-    };
-    bar('L2 原始值', v.raw, 360, C.RED);
-    ctx.fillStyle = C.INK; ctx.fillRect(90 + 500 * v.max - 2, 352, 4, 42);
-    bar('R2 原始值', v.rawGas, 440, C.GREEN);
-    ctx.font = font('中', 16); ctx.fillStyle = C.INK;
-    ctx.fillText(`记录到的 L2 最大值：${v.max.toFixed(3)}（黑线）`, 90, 510);
-    ctx.fillText(`断点 1600N 约在扳机 ${(Math.pow(PEDAL.BREAK / PEDAL.FMAX, 1 / PEDAL.GAMMA) * 100).toFixed(0)}% 行程处`, 90, 540);
-    ctx.fillText(`自适应扳机：${v.hid}`, 90, 570);
-  });
-  drawPedalCam(ctx, 690, 110, 540, 340, { travel: v.travel, force: v.force, threshold: PEDAL.BREAK, fatigue: 0, t: v.t });
-  // 简易力表
-  const gx = 960, gy = 600, r = 110;
-  ctx.save();
-  ctx.beginPath(); ctx.arc(gx, gy, r, Math.PI, Math.PI * 2); ctx.closePath(); ctx.fillStyle = C.WHITE; ctx.fill(); ctx.lineWidth = 5; ctx.strokeStyle = C.INK; ctx.stroke();
-  const toA = (f: number) => Math.PI + (f / PEDAL.FMAX) * Math.PI;
-  const z = (a: number, b: number, c: string) => { ctx.beginPath(); ctx.arc(gx, gy, r - 12, toA(a), toA(b)); ctx.lineWidth = 18; ctx.strokeStyle = c; ctx.stroke(); };
-  z(0, 1200, C.GREEN); z(1200, 1600, C.YELLOW); z(1600, 2000, C.RED);
-  const a = toA(clamp(v.force, 0, PEDAL.FMAX));
-  ctx.strokeStyle = C.INK; ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(gx + Math.cos(a) * (r - 10), gy + Math.sin(a) * (r - 10)); ctx.stroke();
-  ctx.font = "36px 'Bangers', Impact"; ctx.fillStyle = v.force > 1600 ? C.RED : C.INK; ctx.textAlign = 'center'; ctx.fillText(`${Math.round(v.force)}N`, gx, gy - 24);
-  ctx.restore();
-  if (v.force > 1600) sfx(ctx, '这里就会断!', 960, 470, 40, C.RED, { rot: -0.06 });
-}

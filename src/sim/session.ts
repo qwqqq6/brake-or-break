@@ -164,7 +164,7 @@ export class Session {
       const amt = van.a < -6.6 ? 14 : 8;
       this.coffee = Math.max(0, this.coffee - amt);
       this.combo = 1;
-      this.pop('SPLASH!', C.BROWN, '咖啡洒了', 50);
+      this.pop('SPLASH!', C.BROWN, undefined, 50);
       fx.audio.splash();
       for (let i = 0; i < 14; i++) this.drops.push({ x: 300 + this.rand() * 30, y: 470, vx: (this.rand() - 0.3) * 260, vy: -150 - this.rand() * 250, life: 1 });
       if (this.stains.length < 14) this.stains.push({ x: 160 + this.rand() * 360, y: 400 + this.rand() * 80, r: 10 + this.rand() * 26, seed: this.rand() * 1000 });
@@ -190,7 +190,7 @@ export class Session {
     if (van.locked && Math.abs(van.v) > 1) {
       this.shake = Math.max(this.shake, 0.35);
       this.skidCd -= dt;
-      if (this.skidCd <= 0) { this.skidCd = 1.4; this.pop('SKREEEE!', C.WHITE, '抱死了！松一点', 46); }
+      if (this.skidCd <= 0) { this.skidCd = 1.4; this.pop('SKREEEE!', C.WHITE, undefined, 46); }
     } else this.skidCd = 0;
 
     // 震动：越接近断点越强
@@ -200,7 +200,7 @@ export class Session {
     if (this.tailgater) {
       this.tailgater.honk -= dt;
       const st = this.stops.find((s) => !s.done);
-      if (st?.light?.state === 'green' && van.v < 0.5 && this.tailgater.honk <= 0) { fx.audio.horn(); this.tailgater.honk = 2.2; this.pop('HONK!', C.YELLOW, '后车催了', 44); }
+      if (st?.light?.state === 'green' && van.v < 0.5 && this.tailgater.honk <= 0) { fx.audio.horn(); this.tailgater.honk = 2.2; this.pop('HONK!', C.YELLOW, undefined, 44); }
     }
   }
 
@@ -279,7 +279,7 @@ export class Session {
       if (hz.state === 'idle') {
         if (d > 0 && d < 140 && d <= Math.max(14, van.v * hz.ttc)) {
           hz.state = 'active'; hz.t = 0;
-          this.pop(hz.kind === 'ducks' ? 'QUACK!' : 'THUD!', C.YELLOW, hz.kind === 'ducks' ? '鸭子过马路!' : '货箱掉下来了!', 60);
+          this.pop(hz.kind === 'ducks' ? 'QUACK!' : 'THUD!', C.YELLOW, undefined, 60);
           hz.kind === 'ducks' ? fx.audio.quack() : fx.audio.thud();
           fx.input.pulse(0.4, 0.2, 150);
         }
@@ -367,20 +367,20 @@ export class Session {
     const van = this.van;
     if (this.tailgater) {
       const st = this.stops.find((s) => !s.done);
-      if (st?.light?.state === 'green') return { text: '绿灯！先给油再松刹车，别溜车', warn: true };
-      return { text: '踩住刹车！后面有车', warn: true };
+      if (st?.light?.state === 'green') return { text: '绿灯', warn: true };
+      return { text: '后车!', warn: true };
     }
     const hz = this.hazards.find((h) => h.state === 'active');
-    if (hz) return { text: hz.kind === 'ducks' ? '鸭子过马路！停下等它们' : '前方货箱！停车等清理', warn: true };
+    if (hz) return { text: hz.kind === 'ducks' ? '鸭子!' : '货箱!', warn: true };
     if (this.lead && this.lead.solid) {
       const gap = this.lead.s - van.s;
       const tg = van.v > 1 ? gap / van.v : 9;
-      return { text: `前车 ${gap.toFixed(0)}m · ${tg >= 9 ? '--' : tg.toFixed(1) + 's'}${tg < 1.2 ? '  太近了!' : ''}`, warn: tg < 1.2 };
+      return { text: `前车 ${gap.toFixed(0)}m`, warn: tg < 1.2 };
     }
     const hp = this.hairpins.find((h) => !h.done && h.s - van.s < 220);
     if (hp) {
       const over = van.v * 3.6 > hp.limit + 4;
-      return { text: `急弯限速 ${hp.limit} · ${(hp.s - van.s).toFixed(0)}m${over ? '  减速!' : ''}`, warn: over };
+      return { text: `急弯 ${hp.limit}km/h · ${(hp.s - van.s).toFixed(0)}m`, warn: over };
     }
     const st = this.stops.find((s) => !s.done);
     if (st) {
@@ -390,6 +390,6 @@ export class Session {
         return { text: `${kind} ${d.toFixed(1)}m`, warn: false };
       }
     }
-    return { text: this.def.endless ? `已行驶 ${(van.s / 1000).toFixed(2)}km` : '注意路况', warn: false };
+    return { text: this.def.endless ? `${(van.s / 1000).toFixed(2)}km` : '', warn: false };
   }
 }

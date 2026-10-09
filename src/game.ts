@@ -1,4 +1,4 @@
-import { C, H, PEDAL, TRIGGER, W } from './config';
+import { C, H, TRIGGER, W } from './config';
 import { AudioEngine } from './audio';
 import { Input } from './input/input';
 import { DualSenseHID, EFFECT_OFF, feedbackEffect, vibrationEffect, weaponEffect } from './input/dualsense-hid';
@@ -8,13 +8,12 @@ import { Pedal } from './sim/pedal';
 import { Session, type CrashReason } from './sim/session';
 import { CrashSeq } from './render/crash';
 import { renderSession } from './render/scene';
-import { drawBrief, drawCalib, drawPause, drawResult, drawSelect, drawTitle, type ResultData } from './render/screens';
+import { drawBrief, drawPause, drawResult, drawSelect, drawTitle, type ResultData } from './render/screens';
 import { caption } from './render/comic';
 import { clamp } from './util';
 
-type State = 'title' | 'select' | 'brief' | 'play' | 'pause' | 'crash' | 'result' | 'calib';
+type State = 'title' | 'select' | 'brief' | 'play' | 'pause' | 'crash' | 'result';
 
-const TITLE_ITEMS = ['开始游戏', '无尽模式', '手柄校准', '启用自适应扳机'];
 const PAUSE_ITEMS = ['继续', '重新开始', '退出到关卡选择'];
 const REASONS: Record<CrashReason, string> = {
   pedal: '踏板断了!', rear: '追尾了!', ducks: '为了鸭子…', crate: '撞上货箱!',
@@ -38,12 +37,9 @@ export class Game {
   toast: { text: string; t: number } | null = null;
   private snap = document.createElement('canvas');
   private cover = document.createElement('canvas');
-  private calibMax = 0;
-  private calibPedal = new Pedal();
   private frozen = false;
   /** 踏板断裂时刻（performance.now），驱动扳机"嘎巴"序列 */
   snapAt = 0;
-  private calibOver = false;
 
   constructor(private canvas: HTMLCanvasElement, private ctx: CanvasRenderingContext2D) {
     this.snap.width = this.cover.width = W;
@@ -58,8 +54,8 @@ export class Game {
       if (this.state !== 'title') return;
       const r = canvas.getBoundingClientRect();
       const x = ((e.clientX - r.left) / r.width) * W, y = ((e.clientY - r.top) / r.height) * H;
-      if (x > 20 && x < 600 && y > 622 && y < 660) { this.requestHid(); return; }
-      for (let i = 0; i < TITLE_ITEMS.length; i++) {
+      const items = this.titleItems();
+      for (let i = 0; i < items.length; i++) {
         const iy = 420 + i * 62;
         if (x > 690 && x < 1030 && y > iy - 24 && y < iy + 26) { this.sel = i; this.activateTitle(true); }
       }
@@ -67,19 +63,18 @@ export class Game {
     this.hid.autoConnect();
   }
 
+  private titleItems() {
+    const items = ['开始游戏', '无尽模式'];
+    if (this.hid.supported) items.push(this.hid.connected ? '自适应扳机 ✓' : '自适应扳机');
+    return items;
+  }
+
   private go(s: State) { this.state = s; this.st = 0; this.sel = 0; }
   private say(text: string) { this.toast = { text, t: 0 }; }
 
-  private hidLabel() {
-    if (!this.hid.supported) return '浏览器不支持（请用 Chrome / Edge）';
-    if (this.hid.connected) return `已启用 ✓（${this.hid.bt ? '蓝牙' : 'USB'}）`;
-    return '未启用（按 H 或点击菜单项）';
-  }
-
   private async requestHid() {
-    if (!this.hid.supported) { this.say('当前浏览器不支持 WebHID，请用 Chrome 或 Edge'); return; }
-    const ok = await this.hid.request();
-    this.say(ok ? '自适应扳机已启用！L2 会随踩力变硬' : '未连接（可以在弹窗里选择 DualSense）');
+    if (!this.hid.supported) return;
+    if (await this.hid.request()) this.say('自适应扳机 ✓');
   }
 
   private startLevel(lv: LevelDef) {
@@ -97,7 +92,7 @@ export class Game {
     const lv = id === 99 ? makeEndless(7) : LEVELS.find((l) => l.id === id) || LEVELS[0];
     const fake = { brake: 0, throttle: 0.5, setRumble: () => {}, pulse: () => {}, snap: () => {} } as unknown as Input;
     const fx = { audio: this.audio, input: fake };
-    if (scene === 'title' || scene === 'select' || scene === 'calib') { this.go(scene as State); return; }
+    if (scene === 'title' || scene === 'select') { this.go(scene as State); return; }
     if (scene === 'brief') { this.level = lv; this.go('brief'); this.st = 2; return; }
     this.startLevel(lv);
     const s = this.session!;
@@ -137,7 +132,7 @@ export class Game {
 
     switch (this.state) {
       case 'title':
-        nav(TITLE_ITEMS.length);
+        nav(this.titleItems().length);
         if (inp.pressed('confirm')) this.activateTitle(false);
         break;
       case 'select': {
@@ -201,21 +196,6 @@ export class Game {
         }
         break;
       }
-      case 'calib': {
-        this.calibMax = Math.max(this.calibMax, inp.rawBrake);
-        this.calibPedal.update(clamp(inp.rawBrake / Math.max(0.3, this.calibMax || 1), 0, 1), dt, true);
-        // 校准页试断：越过 1600N 体验一次"嘎巴"（不会失败）
-        if (this.calibPedal.force > PEDAL.BREAK && !this.calibOver) {
-          this.calibOver = true; this.snapAt = now; inp.snap(); this.audio.crack();
-        } else if (this.calibPedal.force < PEDAL.FATIGUE_START) this.calibOver = false;
-        if (inp.pressed('back')) { this.go('title'); this.sel = 2; break; }
-        if (inp.pressed('confirm')) {
-          if (this.calibMax > 0.3) { inp.calib.brakeMax = this.calibMax; inp.calib.throttleMax = Math.max(0.3, inp.calib.throttleMax); inp.saveCalib(); this.say(`已保存：L2 最大值 ${this.calibMax.toFixed(3)}`); }
-          else this.say('还没检测到 L2 按到底，先按一下');
-          this.go('title'); this.sel = 2;
-        }
-        break;
-      }
     }
     this.updateHid(now);
     inp.endFrame();
@@ -227,10 +207,10 @@ export class Game {
     switch (this.sel) {
       case 0: this.go('select'); this.sel = this.levelSel; break;
       case 1: this.levelSel = LEVELS.length; this.level = makeEndless(Date.now() & 0xffff); this.go('brief'); break;
-      case 2: this.calibMax = 0; this.calibPedal.reset(); this.go('calib'); break;
-      case 3:
+      case 2:
+        // 浏览器只允许鼠标/键盘触发设备授权弹窗
         if (fromPointer || this.input.source === 'kb') this.requestHid();
-        else this.say('浏览器安全限制：请用鼠标点击这一项，或按键盘 H 键');
+        else this.say('用鼠标点一下');
         break;
     }
   }
@@ -261,31 +241,27 @@ export class Game {
     this.go('result');
   }
 
-  /** 自适应扳机 + 灯条 */
+  /** 自适应扳机 + 灯条 + 马达 */
   private updateHid(now: number) {
-    if (!this.hid.connected) return;
+    if (!this.hid.connected) { this.input.rumbleSink = null; return; }
+    if (!this.input.rumbleSink) this.input.rumbleSink = (s, w) => this.hid.setMotor(s, w);
     const s = this.session;
     // 断裂瞬间：扳机先高频"咔"地一抖，然后彻底松垮（踩空）
     if (this.snapAt > 0) {
       const dtSnap = now - this.snapAt;
-      if (dtSnap < TRIGGER.SNAP_MS) {
-        this.hid.setLeft(vibrationEffect(0, 8, TRIGGER.SNAP_FREQ));
-        this.hid.setLight(255, 255, 255);
-        this.hid.flush(now, true);
-        return;
-      }
       if (dtSnap < TRIGGER.SNAP_MS + TRIGGER.LIMP_MS) {
-        this.hid.setLeft(EFFECT_OFF);
+        const shaking = dtSnap < TRIGGER.SNAP_MS;
+        this.hid.setLeft(shaking ? vibrationEffect(0, 8, TRIGGER.SNAP_FREQ) : EFFECT_OFF);
         this.hid.setRight(EFFECT_OFF);
-        this.hid.setLight(Math.floor(this.t * 10) % 2 ? 255 : 30, 0, 0);
-        this.hid.flush(now, true);
+        this.hid.setLight(shaking ? 255 : Math.floor(this.t * 10) % 2 ? 255 : 30, shaking ? 255 : 0, shaking ? 255 : 0);
+        this.hid.flush(now);
         return;
       }
       this.snapAt = 0;
     }
-    if ((this.state === 'play' || this.state === 'calib') && (this.state === 'calib' || (s && s.status !== 'crash'))) {
-      const thr = this.state === 'calib' ? PEDAL.BREAK : s!.pedal.threshold;
-      const f = this.state === 'calib' ? this.calibPedal.force : s!.pedal.force;
+    if (this.state === 'play' && s && s.status !== 'crash') {
+      const thr = s.pedal.threshold;
+      const f = s.pedal.force;
       const max = this.input.calib.brakeMax || 1;
       // 断点在扳机原始行程上的位置（10 个区段）
       const zt = (0.02 + Pedal.travelOf(thr) * (max - 0.02)) * 10;
@@ -317,8 +293,8 @@ export class Game {
     const ctx = this.ctx;
     ctx.save();
     switch (this.state) {
-      case 'title': drawTitle(ctx, this.t, TITLE_ITEMS, this.sel, this.input, this.hidLabel()); break;
-      case 'select': drawSelect(ctx, this.t, LEVELS, this.sel, this.save, this.input); break;
+      case 'title': drawTitle(ctx, this.t, this.titleItems(), this.sel); break;
+      case 'select': drawSelect(ctx, this.t, LEVELS, this.sel, this.save); break;
       case 'brief': drawBrief(ctx, this.st, this.level, this.input); break;
       case 'play':
       case 'pause': {
@@ -343,12 +319,6 @@ export class Game {
         break;
       }
       case 'result': drawResult(ctx, this.st, this.result!, this.input, this.result!.success ? undefined : this.cover); break;
-      case 'calib':
-        drawCalib(ctx, {
-          raw: this.input.rawBrake, rawGas: this.input.rawThrottle, max: this.calibMax, force: this.calibPedal.force,
-          travel: this.calibPedal.travel, t: this.t, padConnected: this.input.padConnected, hid: this.hidLabel(),
-        }, this.input);
-        break;
     }
     if (this.toast) {
       const a = clamp(3 - this.toast.t, 0, 1);

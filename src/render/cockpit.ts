@@ -251,8 +251,7 @@ function drawForceGauge(ctx: Ctx, v: CockpitView) {
   ctx.beginPath(); ctx.arc(x, y, r, Math.PI, Math.PI * 2); ctx.lineWidth = 5; ctx.strokeStyle = C.INK; ctx.stroke();
   // 读数
   const fcol = v.force > thr - 150 ? C.RED : v.force > PEDAL.FATIGUE_START ? C.ORANGE : C.INK;
-  ctx.font = font('踏板力', 12); ctx.fillStyle = C.INK; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-  ctx.fillText('踏板力 PEDAL FORCE', x, y - 64);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
   ctx.font = `40px 'Bangers', Impact`; ctx.fillStyle = fcol;
   ctx.fillText(`${Math.round(v.force)}N`, x, y - 22);
   ctx.restore();

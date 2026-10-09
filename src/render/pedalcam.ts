@@ -1,6 +1,6 @@
 import { C, PEDAL } from '../config';
 import { clamp, hash } from '../util';
-import { caption, dots, poly, sfx, speedLines } from './comic';
+import { dots, poly, sfx, speedLines } from './comic';
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -124,7 +124,6 @@ export function drawPedalCam(ctx: Ctx, x: number, y: number, w: number, h: numbe
 
   if (framed) {
     poly(ctx, pts); ctx.lineWidth = 6; ctx.strokeStyle = stress > 0.75 && Math.floor(v.t * 10) % 2 === 0 ? C.RED : C.INK; ctx.stroke();
-    caption(ctx, '踏板特写', x + 14, y + 22, { size: 14, align: 'left', bg: C.WHITE });
     // 力值 + 进度条
     const bx = x + 34, by = y + h - 36, bw = w - 60;
     ctx.fillStyle = C.INK; ctx.fillRect(bx - 3, by - 3, bw + 6, 22);
