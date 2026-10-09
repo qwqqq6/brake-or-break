@@ -1,7 +1,7 @@
-import { C, H, PEDAL, W } from './config';
+import { C, H, PEDAL, TRIGGER, W } from './config';
 import { AudioEngine } from './audio';
 import { Input } from './input/input';
-import { DualSenseHID, EFFECT_OFF, feedbackEffect } from './input/dualsense-hid';
+import { DualSenseHID, EFFECT_OFF, feedbackEffect, vibrationEffect, weaponEffect } from './input/dualsense-hid';
 import { LEVELS, makeEndless, type LevelDef } from './levels';
 import { loadSave, writeSave, type SaveData } from './save';
 import { Pedal } from './sim/pedal';
@@ -41,6 +41,9 @@ export class Game {
   private calibMax = 0;
   private calibPedal = new Pedal();
   private frozen = false;
+  /** 踏板断裂时刻（performance.now），驱动扳机"嘎巴"序列 */
+  snapAt = 0;
+  private calibOver = false;
 
   constructor(private canvas: HTMLCanvasElement, private ctx: CanvasRenderingContext2D) {
     this.snap.width = this.cover.width = W;
@@ -55,6 +58,7 @@ export class Game {
       if (this.state !== 'title') return;
       const r = canvas.getBoundingClientRect();
       const x = ((e.clientX - r.left) / r.width) * W, y = ((e.clientY - r.top) / r.height) * H;
+      if (x > 20 && x < 600 && y > 622 && y < 660) { this.requestHid(); return; }
       for (let i = 0; i < TITLE_ITEMS.length; i++) {
         const iy = 420 + i * 62;
         if (x > 690 && x < 1030 && y > iy - 24 && y < iy + 26) { this.sel = i; this.activateTitle(true); }
@@ -91,7 +95,7 @@ export class Game {
     if (!scene) return;
     const id = Number(q.get('level') || 1);
     const lv = id === 99 ? makeEndless(7) : LEVELS.find((l) => l.id === id) || LEVELS[0];
-    const fake = { brake: 0, throttle: 0.5, setRumble: () => {}, pulse: () => {} } as unknown as Input;
+    const fake = { brake: 0, throttle: 0.5, setRumble: () => {}, pulse: () => {}, snap: () => {} } as unknown as Input;
     const fx = { audio: this.audio, input: fake };
     if (scene === 'title' || scene === 'select' || scene === 'calib') { this.go(scene as State); return; }
     if (scene === 'brief') { this.level = lv; this.go('brief'); this.st = 2; return; }
@@ -155,7 +159,9 @@ export class Game {
       case 'play': {
         const s = this.session!;
         if (inp.pressed('pause') && s.status !== 'crash') { this.go('pause'); this.audio.silence(); this.input.setRumble(0, 0); break; }
+        const wasRun = s.status === 'run';
         s.update(dt, inp, { audio: this.audio, input: inp });
+        if (wasRun && s.status === 'crash' && s.crashReason === 'pedal') { this.snapAt = now; this.updateHid(now); }
         this.audio.drive({ speed: s.van.v, throttle: inp.throttle, force: s.pedal.force, locked: s.van.locked, temp: s.van.temp, rain: s.def.rain, active: s.status !== 'crash' });
         if (s.status === 'done' && s.doneT > 2.2) this.finishResult(true);
         break;
@@ -198,6 +204,10 @@ export class Game {
       case 'calib': {
         this.calibMax = Math.max(this.calibMax, inp.rawBrake);
         this.calibPedal.update(clamp(inp.rawBrake / Math.max(0.3, this.calibMax || 1), 0, 1), dt, true);
+        // 校准页试断：越过 1600N 体验一次"嘎巴"（不会失败）
+        if (this.calibPedal.force > PEDAL.BREAK && !this.calibOver) {
+          this.calibOver = true; this.snapAt = now; inp.snap(); this.audio.crack();
+        } else if (this.calibPedal.force < PEDAL.FATIGUE_START) this.calibOver = false;
         if (inp.pressed('back')) { this.go('title'); this.sel = 2; break; }
         if (inp.pressed('confirm')) {
           if (this.calibMax > 0.3) { inp.calib.brakeMax = this.calibMax; inp.calib.throttleMax = Math.max(0.3, inp.calib.throttleMax); inp.saveCalib(); this.say(`已保存：L2 最大值 ${this.calibMax.toFixed(3)}`); }
@@ -255,19 +265,44 @@ export class Game {
   private updateHid(now: number) {
     if (!this.hid.connected) return;
     const s = this.session;
+    // 断裂瞬间：扳机先高频"咔"地一抖，然后彻底松垮（踩空）
+    if (this.snapAt > 0) {
+      const dtSnap = now - this.snapAt;
+      if (dtSnap < TRIGGER.SNAP_MS) {
+        this.hid.setLeft(vibrationEffect(0, 8, TRIGGER.SNAP_FREQ));
+        this.hid.setLight(255, 255, 255);
+        this.hid.flush(now, true);
+        return;
+      }
+      if (dtSnap < TRIGGER.SNAP_MS + TRIGGER.LIMP_MS) {
+        this.hid.setLeft(EFFECT_OFF);
+        this.hid.setRight(EFFECT_OFF);
+        this.hid.setLight(Math.floor(this.t * 10) % 2 ? 255 : 30, 0, 0);
+        this.hid.flush(now, true);
+        return;
+      }
+      this.snapAt = 0;
+    }
     if ((this.state === 'play' || this.state === 'calib') && (this.state === 'calib' || (s && s.status !== 'crash'))) {
       const thr = this.state === 'calib' ? PEDAL.BREAK : s!.pedal.threshold;
-      const raw = Pedal.travelOf(thr) * (this.input.calib.brakeMax || 1);
-      const zt = raw * 10;
-      const strengths: number[] = [];
-      for (let i = 0; i < 10; i++) {
-        if (i + 0.5 >= zt) strengths.push(8);
-        else strengths.push(i < 2 ? 0 : Math.round(1 + clamp((i - 2) / Math.max(1, zt - 2.5), 0, 1) * 4));
-      }
-      this.hid.setLeft(feedbackEffect(strengths));
-      this.hid.setRight(feedbackEffect([0, 1, 1, 1, 1, 1, 1, 1, 1, 1]));
       const f = this.state === 'calib' ? this.calibPedal.force : s!.pedal.force;
+      const max = this.input.calib.brakeMax || 1;
+      // 断点在扳机原始行程上的位置（10 个区段）
+      const zt = (0.02 + Pedal.travelOf(thr) * (max - 0.02)) * 10;
+      const wall = Math.floor(zt);
       const k = clamp(f / thr, 0, 1);
+      if (k >= TRIGGER.CLICK_AT && wall >= 3) {
+        // 危险区：武器模式，阻力顶到断点后突然释放 → 嘎巴
+        this.hid.setLeft(weaponEffect(wall - 2, wall, TRIGGER.WALL));
+      } else {
+        const strengths: number[] = [];
+        for (let i = 0; i < 10; i++) {
+          if (i >= wall) strengths.push(TRIGGER.WALL);
+          else strengths.push(Math.round(TRIGGER.DAMP_START + (TRIGGER.DAMP_END - TRIGGER.DAMP_START) * (i / Math.max(1, wall - 1))));
+        }
+        this.hid.setLeft(feedbackEffect(strengths));
+      }
+      this.hid.setRight(feedbackEffect([0, 2, 2, 2, 2, 2, 2, 2, 2, 2]));
       this.hid.setLight(k < 0.75 ? k / 0.75 * 255 : 255, k < 0.75 ? 255 : (1 - (k - 0.75) / 0.25) * 255, 0);
     } else {
       this.hid.setLeft(EFFECT_OFF);

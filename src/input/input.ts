@@ -40,6 +40,7 @@ export class Input {
   private pulses: { s: number; w: number; until: number }[] = [];
   private lastRumble = 0;
   private lastSent = 0;
+  private holdUntil = 0;
   onUserGesture?: (code: string) => void;
 
   constructor() {
@@ -131,7 +132,25 @@ export class Input {
   pulse(strong: number, weak: number, ms: number) {
     this.pulses.push({ s: strong, w: weak, until: performance.now() + ms });
   }
+  /**
+   * 断裂"嘎巴"：绕过限频直接驱动马达。
+   * 嘎 = 高频小马达尖锐一下；（停顿）巴 = 大马达重重一下；之后一段余震。
+   */
+  snap() {
+    const g = this.pad();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const act = g && (g as any).vibrationActuator;
+    this.pulses = [];
+    this.rumbleBase = { s: 0, w: 0 };
+    this.holdUntil = performance.now() + 700;
+    if (!act || typeof act.playEffect !== 'function') return;
+    const play = (s: number, w: number, d: number) => act.playEffect('dual-rumble', { startDelay: 0, duration: d, strongMagnitude: s, weakMagnitude: w }).catch(() => {});
+    play(0.15, 1, 55);
+    setTimeout(() => play(1, 1, 110), 85);
+    setTimeout(() => play(0.45, 0.15, 380), 200);
+  }
   private flushRumble(now: number) {
+    if (now < this.holdUntil) return;
     this.pulses = this.pulses.filter((p) => p.until > now);
     let s = this.rumbleBase.s, w = this.rumbleBase.w;
     for (const p of this.pulses) { s = Math.max(s, p.s); w = Math.max(w, p.w); }

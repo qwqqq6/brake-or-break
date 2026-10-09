@@ -16,6 +16,17 @@ export const PEDAL = {
   SPIKE_DECAY: 5,
 };
 
+/** DualSense 自适应扳机（需 WebHID 启用）。强度 1..8 */
+export const TRIGGER = {
+  DAMP_START: 3,     // 扳机一开始的阻尼
+  DAMP_END: 7,       // 接近断点前的阻尼
+  WALL: 8,           // 断点处的"硬墙"
+  CLICK_AT: 0.82,    // 踩力达到阈值的这个比例时，切换成"咔嗒"模式（越过断点阻力瞬间消失）
+  SNAP_MS: 140,      // 断裂瞬间扳机高频振动时长
+  SNAP_FREQ: 45,     // 断裂振动频率 (Hz)
+  LIMP_MS: 1600,     // 断裂后扳机完全松垮（踩空感）
+};
+
 export const VAN = {
   MASS: 1800,
   BRAKE_K: 10.1,       // 踏板力 → 轮端制动力 放大倍数

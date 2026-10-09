@@ -184,6 +184,7 @@ export class Session {
     this.creakCd -= dt;
     if (f > 1200 && this.creakCd <= 0) {
       fx.audio.creak();
+      fx.input.pulse(0.35, 0.1, 45);
       this.creakCd = lerp(0.7, 0.18, clamp((f - 1200) / (thr - 1200), 0, 1));
     }
     if (van.locked && Math.abs(van.v) > 1) {
@@ -324,8 +325,8 @@ export class Session {
     this.status = 'crash';
     this.crashReason = reason;
     this.crashTarget = target ?? this.guessTarget();
-    fx.input.pulse(1, 1, 900);
     fx.input.setRumble(0, 0);
+    if (reason === 'pedal') fx.input.snap(); else fx.input.pulse(1, 1, 700);
     if (reason === 'pedal') fx.audio.crack(); else fx.audio.crash();
   }
 

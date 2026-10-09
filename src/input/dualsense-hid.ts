@@ -37,6 +37,35 @@ export function feedbackEffect(strengths: number[]): Uint8Array {
 }
 export const EFFECT_OFF = (() => { const e = new Uint8Array(11); e[0] = 0x05; return e; })();
 
+/**
+ * 武器模式（0x25）：start..end 区间有阻力，越过 end 后阻力瞬间消失 → "咔嗒"一下。
+ * start 2..7, end start+1..8, strength 1..8
+ */
+export function weaponEffect(start: number, end: number, strength: number): Uint8Array {
+  const s = Math.max(2, Math.min(7, Math.round(start)));
+  const en = Math.max(s + 1, Math.min(8, Math.round(end)));
+  const zones = (1 << s) | (1 << en);
+  const e = new Uint8Array(11);
+  e[0] = 0x25;
+  e[1] = zones & 0xff; e[2] = (zones >> 8) & 0xff;
+  e[3] = (Math.max(1, Math.min(8, Math.round(strength))) - 1) & 7;
+  return e;
+}
+
+/** 振动模式（0x26）：从 position 往后的行程上振动。amplitude 1..8，frequency Hz（1..255） */
+export function vibrationEffect(position: number, amplitude: number, frequency: number): Uint8Array {
+  const e = new Uint8Array(11);
+  const p = Math.max(0, Math.min(9, Math.round(position)));
+  const a = (Math.max(1, Math.min(8, Math.round(amplitude))) - 1) & 7;
+  let active = 0, amps = 0;
+  for (let i = p; i < 10; i++) { active |= 1 << i; amps |= a << (3 * i); }
+  e[0] = 0x26;
+  e[1] = active & 0xff; e[2] = (active >> 8) & 0xff;
+  e[3] = amps & 0xff; e[4] = (amps >>> 8) & 0xff; e[5] = (amps >>> 16) & 0xff; e[6] = (amps >>> 24) & 0xff;
+  e[9] = Math.max(1, Math.min(255, Math.round(frequency)));
+  return e;
+}
+
 export class DualSenseHID {
   device: HIDDevice | null = null;
   bt = false;
@@ -101,9 +130,10 @@ export class DualSenseHID {
     if (Math.abs(n[0] - this.rgb[0]) + Math.abs(n[1] - this.rgb[1]) + Math.abs(n[2] - this.rgb[2]) > 12) { this.rgb = n; this.dirty = true; }
   }
 
-  /** 每帧调用，内部限频 ~25Hz */
-  flush(now: number) {
-    if (!this.device || !this.dirty || this.sending || now - this.lastSend < 40) return;
+  /** 每帧调用，内部限频 ~25Hz；force=true 时立即发送（用于断裂瞬间） */
+  flush(now: number, force = false) {
+    if (!this.device || !this.dirty || this.sending) return;
+    if (!force && now - this.lastSend < 40) return;
     this.lastSend = now;
     this.dirty = false;
     const c = new Uint8Array(47);
@@ -115,7 +145,11 @@ export class DualSenseHID {
     c[44] = this.rgb[0]; c[45] = this.rgb[1]; c[46] = this.rgb[2];
 
     let id = 0x02, data: Uint8Array = c;
-    if (this.bt) {
+    if (!this.bt) {
+      // USB 输出报告 0x02 总长 63 字节（含 report id），数据部分 62 字节，补齐避免部分系统丢弃
+      data = new Uint8Array(62);
+      data.set(c, 0);
+    } else {
       id = 0x31;
       data = new Uint8Array(77);
       data[0] = (this.seq << 4) & 0xf0; this.seq = (this.seq + 1) & 0x0f;

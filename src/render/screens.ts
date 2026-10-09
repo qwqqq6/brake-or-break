@@ -42,7 +42,11 @@ export function drawTitle(ctx: Ctx, t: number, items: string[], sel: number, inp
   });
   const pad = input.padConnected ? `🎮 已连接：${input.padName.slice(0, 40)}` : '🎮 未检测到手柄：连接后按任意键激活（或用键盘游玩）';
   caption(ctx, pad, 20, 668, { size: 15, align: 'left', bg: input.padConnected ? C.GREEN : C.WHITE });
-  caption(ctx, `自适应扳机：${hidStatus}`, 20, 630, { size: 15, align: 'left', bg: C.WHITE });
+  const needHid = input.padConnected && hidStatus.startsWith('未启用');
+  if (needHid) {
+    const blink = Math.floor(t * 2.5) % 2 === 0;
+    caption(ctx, '⚠ 点这里 / 按 H 启用自适应扳机（阻尼 + 断裂"嘎巴"手感）', 20, 626, { size: 17, align: 'left', bg: blink ? C.RED : C.YELLOW, fg: blink ? C.WHITE : C.INK });
+  } else caption(ctx, `自适应扳机：${hidStatus}`, 20, 630, { size: 15, align: 'left', bg: C.WHITE });
   ctx.fillStyle = C.INK; ctx.font = font('确认', 16); ctx.textAlign = 'right';
   ctx.fillText(`${input.glyph('up')}${input.glyph('down')} 选择   ${input.glyph('confirm')} 确认   M 静音   点击画面开启声音`, W - 20, H - 16);
 }
@@ -225,7 +229,7 @@ export function drawCalib(ctx: Ctx, v: CalibView, input: Input) {
     const lines = [
       v.padConnected ? '① 把 L2 慢慢按到底，再松开' : '① 请先连接 PS5 手柄，按任意键激活',
       '② 观察右边的踏板：力会随行程非线性增加',
-      '③ 试试停在 1500N 附近——这里可以随便踩，不会断',
+      '③ 停在 1500N 附近；踩过 1600N 体验一次"嘎巴"（这里不会失败）',
       `④ 按 ${input.glyph('confirm')} 保存校准   ${input.glyph('back')} 返回`,
     ];
     lines.forEach((l, i) => ctx.fillText(l, 90, 160 + i * 40));

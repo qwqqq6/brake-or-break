@@ -10,7 +10,7 @@ const audio = new Proxy({}, { get: () => noop }) as never;
 
 class FakeInput {
   brake = 0; throttle = 0;
-  setRumble = noop; pulse = noop;
+  setRumble = noop; pulse = noop; snap = noop;
 }
 
 function bot(s: Session, inp: FakeInput) {
