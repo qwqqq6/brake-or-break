@@ -61,6 +61,7 @@ export class Session {
   private resumeT = 0;
   private timeScale = 1;
   inCurve = false;
+  sharpCurve = false;
   curveOver = 0;
 
   coffee = 100;
@@ -143,8 +144,10 @@ export class Session {
     this.peak = Math.max(this.peak, pedal.force);
 
     // 弯道：刹车空间被压缩，超限车轮崴；猛踩直接破 1600 仍算踏板断
-    this.inCurve = Math.abs(this.road.curveAt(van.s)) > CURVE.MIN && van.v > 3;
-    if (this.inCurve && pedal.force > CURVE.LIMIT) {
+    const k = Math.abs(this.road.curveAt(van.s));
+    this.inCurve = k > CURVE.MIN && van.v > 3;
+    this.sharpCurve = k > CURVE.SHARP && van.v > 8;
+    if (this.sharpCurve && pedal.force > CURVE.LIMIT) {
       this.curveOver += h;
       if (this.curveOver > CURVE.GRACE) { this.crash('sprain', fx, 'ditch'); return; }
     } else this.curveOver = 0;
@@ -165,7 +168,8 @@ export class Session {
 
     let autoBrake = 0;
     if (this.auto) {
-      let target = this.cruise * (this.inCurve ? AUTO.CURVE_SLOW : 1);
+      // 玩家可以用 R2 / ↑ 在巡航速度上加速（分数随速度增加）
+      let target = this.cruise * (this.inCurve ? AUTO.CURVE_SLOW : 1) + input.throttle * AUTO.BOOST;
       const l = this.lead;
       if (l && l.solid) {
         const gap = l.s - van.s;
@@ -175,13 +179,13 @@ export class Session {
       const err = target - van.v;
       const grade = this.road.gradeAt(van.s);
       this.throttle = clamp(err * 0.4 + grade * 4 + 0.1, 0, 1);
-      if (err < -0.8) { this.throttle = 0; autoBrake = Math.min(AUTO.BRAKE, (-err - 0.8) * 1.2) * van.mass; }
-    } else this.throttle = 0;
+      if (err < -0.8 && input.throttle < 0.05) { this.throttle = 0; autoBrake = Math.min(AUTO.BRAKE, (-err - 0.8) * 1.2) * van.mass; }
+    } else this.throttle = pedal.force > 50 ? 0 : input.throttle; // 手动：踩着刹车时不给油
 
     const prevS = van.s;
     van.step(h, this.throttle, pedal.force, this.road.gradeAt(van.s - VAN.LENGTH * 0.5), this.mu, autoBrake);
     this.time += h;
-    if (van.s > prevS) this.score += (van.s - prevS) * (this.def.endless ? 1 + van.v / 20 : 1);
+    if (van.s > prevS) this.score += (van.s - prevS) * (1 + Math.max(0, van.v - 12) / 8);
     this.maxSpeed = Math.max(this.maxSpeed, van.v);
     this.bgX -= this.road.curveAt(van.s) * van.v * h * 18;
 

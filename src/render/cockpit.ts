@@ -243,13 +243,10 @@ function drawForceGauge(ctx: Ctx, v: CockpitView) {
   zone(PEDAL.FATIGUE_START, thr, C.YELLOW);
   zone(thr, PEDAL.FMAX, C.RED);
   if (v.inCurve) {
-    // 弯道：刹车空间被压缩
-    zone(CURVE.LIMIT, thr, C.ORANGE);
-    ctx.fillStyle = hatch(ctx, 'rgba(0,0,0,0.35)', 6, 2);
-    ctx.beginPath(); ctx.arc(x, y, r - 2, toA(CURVE.LIMIT), toA(thr)); ctx.arc(x, y, r - 22, toA(thr), toA(CURVE.LIMIT), true); ctx.closePath(); ctx.fill();
+    // 急弯彩蛋：只标一个小刻度，不剧透
     const ca = toA(CURVE.LIMIT);
-    ctx.strokeStyle = C.ORANGE; ctx.lineWidth = 5;
-    ctx.beginPath(); ctx.moveTo(x + Math.cos(ca) * (r - 40), y + Math.sin(ca) * (r - 40)); ctx.lineTo(x + Math.cos(ca) * (r + 8), y + Math.sin(ca) * (r + 8)); ctx.stroke();
+    ctx.strokeStyle = C.ORANGE; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(x + Math.cos(ca) * (r - 26), y + Math.sin(ca) * (r - 26)); ctx.lineTo(x + Math.cos(ca) * (r + 4), y + Math.sin(ca) * (r + 4)); ctx.stroke();
   }
   ctx.fillStyle = hatch(ctx, 'rgba(0,0,0,0.5)', 6, 2);
   ctx.beginPath(); ctx.arc(x, y, r - 2, toA(thr), toA(PEDAL.FMAX)); ctx.arc(x, y, r - 22, toA(PEDAL.FMAX), toA(thr), true); ctx.closePath(); ctx.fill();

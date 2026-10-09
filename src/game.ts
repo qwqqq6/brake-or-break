@@ -243,7 +243,7 @@ export class Game {
         else strengths.push(Math.round(TRIGGER.DAMP_START + (TRIGGER.DAMP_END - TRIGGER.DAMP_START) * (i / Math.max(1, wall - 1))));
       }
       this.hid.setLeft(feedbackEffect(strengths));
-      this.hid.setRight(EFFECT_OFF);
+      this.hid.setRight(feedbackEffect([0, 2, 2, 2, 2, 2, 2, 2, 2, 2]));
       const k = clamp(s.pedal.force / thr, 0, 1);
       this.hid.setLight(k < 0.75 ? k / 0.75 * 255 : 255, k < 0.75 ? 255 : (1 - (k - 0.75) / 0.25) * 255, 0);
     } else {

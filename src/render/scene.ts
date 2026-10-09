@@ -56,7 +56,7 @@ export function renderSession(ctx: Ctx, s: Session, t: number, input: Input) {
   drawCockpit(ctx, {
     force: s.pedal.force, threshold: s.pedal.threshold, peak: s.peak, speed: van.v, temp: van.temp, fatigue: s.pedal.fatigue,
     coffee: s.coffee, diceLon: s.dice.lon, diceLat: s.dice.lat, wheel: -s.road.curveAt(van.s) * 2.5, t,
-    locked: van.locked && Math.abs(van.v) > 1, fade: van.fade, mass: van.mass, auto: s.auto, inCurve: s.inCurve,
+    locked: van.locked && Math.abs(van.v) > 1, fade: van.fade, mass: van.mass, auto: s.auto, inCurve: s.sharpCurve,
   });
   // 咖啡飞溅
   ctx.fillStyle = '#6f4518';

@@ -68,6 +68,8 @@ export function drawBrief(ctx: Ctx, t: number, lv: LevelDef, input: Input) {
   });
   if (lv.quote) bubble(ctx, `销售：${lv.quote}`, 990, 132, 19, 1215, 200);
   ctx.restore();
+  // 操作只放这一行
+  sfx(ctx, `${input.brakeName()} 刹车    ${input.gasName()} 加速`, 400, 520, 34, C.WHITE, { rot: -0.02, lw: 8 });
   const blink = Math.floor(t * 2.5) % 2 === 0;
   if (blink) sfx(ctx, `${input.glyph('confirm')} 出发!`, 640, 580, 64, C.YELLOW, { rot: -0.04 });
 }
