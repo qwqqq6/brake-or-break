@@ -61,7 +61,7 @@ export class Game {
 
   private titleItems() {
     const items = ['4S店试驾', '无尽模式'];
-    if (this.hid.supported) items.push(this.hid.connected ? '自适应扳机 ✓' : '自适应扳机');
+    if (this.hid.supported) items.push(this.hid.connected ? '连接DS5手柄 ✓' : '连接DS5手柄');
     return items;
   }
 
@@ -70,7 +70,7 @@ export class Game {
 
   private async requestHid() {
     if (!this.hid.supported) return;
-    if (await this.hid.request()) this.say('自适应扳机 ✓');
+    if (await this.hid.request()) this.say('DS5手柄已连接 ✓');
   }
 
   private newEndless() { return makeEndless(Date.now() & 0xffff); }
