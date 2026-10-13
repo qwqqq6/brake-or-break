@@ -25,14 +25,33 @@
       @media (orientation: portrait) and (max-width: 920px) {
         #rotate { display: flex; }
       }
+      /* 右上角系统按钮：横屏 / 全屏 */
+      #sysctl { position: fixed; top: env(safe-area-inset-top, 8px); right: 8px; z-index: 20;
+        display: flex; gap: 8px; }
+      #sysctl button { width: 44px; height: 44px; border-radius: 10px;
+        background: rgba(20,20,24,.72); border: 2px solid #ffd23f; color: #ffd23f;
+        font-size: 22px; line-height: 1; cursor: pointer; padding: 0;
+        display: flex; align-items: center; justify-content: center;
+        -webkit-tap-highlight-color: transparent; }
+      #sysctl button:active { background: #ffd23f; color: #111; }
+      /* 只在触摸设备上显示这组按钮 */
+      @media (hover: hover) and (pointer: fine) { #sysctl { display: none; } }
+      #rotate .go { margin-top: 10px; padding: 12px 26px; border-radius: 12px;
+        background: #ffd23f; color: #111; border: none; font-size: 18px; font-weight: 900;
+        font-family: 'Microsoft YaHei', sans-serif; cursor: pointer; }
     </style>
   </head>
   <body>
     <canvas id="game" width="1280" height="720" role="img" aria-label="别踩断它 游戏画面"></canvas>
+    <div id="sysctl">
+      <button id="btnRotate" title="横屏" aria-label="横屏">⟳</button>
+      <button id="btnFull" title="全屏" aria-label="全屏">⛶</button>
+    </div>
     <div id="rotate">
       <div class="ico">📱</div>
       <div class="big">请把手机横过来</div>
       <div class="sub">BRAKE OR BREAK · 横屏体验更佳</div>
+      <button class="go" id="btnGo">进入全屏横屏</button>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
