@@ -1,6 +1,7 @@
 import { AUTO, C, H, HORIZON, ROAD, VAN, W } from '../config';
 import type { Session } from '../sim/session';
 import type { Input } from '../input/input';
+import { TOUCH_BRAKE, TOUCH_GAS, TOUCH_PAUSE } from '../input/input';
 import { clamp, easeOutBack, fmtTime, hash } from '../util';
 import { burst, caption, dots, panel, roundRect, sfx, speedLines } from './comic';
 import { drawCockpit, PEDAL_CAM } from './cockpit';
@@ -67,9 +68,49 @@ export function renderSession(ctx: Ctx, s: Session, t: number, input: Input) {
   });
 
   drawHud(ctx, s, t);
+  if (input.source === 'touch') drawTouchControls(ctx, s, input, t);
   ctx.restore();
 
   if (s.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${s.flash})`; ctx.fillRect(0, 0, W, H); }
+}
+
+function drawTouchControls(ctx: Ctx, s: Session, input: Input, t: number) {
+  const B = TOUCH_BRAKE, G = TOUCH_GAS, P = TOUCH_PAUSE;
+  const bk = clamp(input.brake, 0, 1), gk = clamp(input.throttle, 0, 1);
+  // BRAKE 大踏板
+  const stress = clamp((s.pedal.force - 1100) / (s.pedal.threshold - 1100), 0, 1);
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  roundRect(ctx, B.x, B.y, B.w, B.h, B.r);
+  ctx.fillStyle = bk > 0.02 ? `rgba(230,57,70,${0.3 + bk * 0.5})` : 'rgba(230,57,70,0.18)';
+  ctx.fill();
+  ctx.lineWidth = 5; ctx.strokeStyle = stress > 0.6 && Math.floor(t * 10) % 2 ? C.YELLOW : C.RED; ctx.stroke();
+  // 力度柱：从底部往上涨
+  const fh = B.h * bk;
+  roundRect(ctx, B.x + 10, B.y + B.h - fh, B.w - 20, Math.max(0, fh - 4), B.r * 0.6);
+  ctx.fillStyle = `rgba(255,210,63,${0.25 + bk * 0.4})`; ctx.fill();
+  ctx.fillStyle = C.WHITE;
+  sfx(ctx, 'BRAKE', B.x + B.w / 2, B.y + 56, 48, C.YELLOW, { lw: 10 });
+  sfx(ctx, '按住 · 往上拖更用力', B.x + B.w / 2, B.y + 100, 20, C.WHITE, { lw: 5 });
+  ctx.restore();
+  // GAS 按钮
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  roundRect(ctx, G.x, G.y, G.w, G.h, G.r);
+  ctx.fillStyle = gk > 0.02 ? `rgba(95,191,74,${0.35 + gk * 0.45})` : 'rgba(95,191,74,0.2)';
+  ctx.fill();
+  ctx.lineWidth = 5; ctx.strokeStyle = C.GREEN; ctx.stroke();
+  sfx(ctx, 'GAS', G.x + G.w / 2, G.y + G.h / 2, 44, C.GREEN, { lw: 9 });
+  ctx.restore();
+  // 暂停按钮
+  ctx.save();
+  ctx.globalAlpha = 0.8;
+  roundRect(ctx, P.x, P.y, P.w, P.h, 10);
+  ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = C.WHITE; ctx.stroke();
+  ctx.fillStyle = C.WHITE;
+  ctx.fillRect(P.x + 16, P.y + 14, 6, P.h - 28);
+  ctx.fillRect(P.x + P.w - 22, P.y + 14, 6, P.h - 28);
+  ctx.restore();
 }
 
 function dynamics(s: Session, t: number): Dyn[] {

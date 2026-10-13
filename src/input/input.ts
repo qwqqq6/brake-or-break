@@ -1,6 +1,12 @@
 import { clamp } from '../util';
+import { H, W } from '../config';
 
 export type Btn = 'confirm' | 'back' | 'pause' | 'up' | 'down' | 'left' | 'right' | 'alt';
+
+/** 屏幕触摸按钮区域（画布坐标系 1280×720） */
+export const TOUCH_BRAKE = { x: 980, y: 150, w: 290, h: 300, r: 30 };
+export const TOUCH_GAS = { x: 20, y: 150, w: 150, h: 150, r: 28 };
+export const TOUCH_PAUSE = { x: W - 70, y: 20, w: 50, h: 50 };
 
 // 标准映射：0=✕ 1=○ 3=△ 9=OPTIONS 12-15=方向键
 const PAD_BTNS: [number, Btn][] = [
@@ -27,8 +33,15 @@ export class Input {
   rawThrottle = 0;
   padConnected = false;
   padName = '';
-  source: 'pad' | 'kb' = 'kb';
+  source: 'pad' | 'kb' | 'touch' = 'kb';
+  isTouch = false;
   calib = { brakeMax: 1, throttleMax: 1 };
+
+  // 触摸状态（画布坐标）
+  private touchBrake = 0;
+  private touchGas = 0;
+  private tapQueue: { x: number; y: number }[] = [];
+  private canvas: HTMLCanvasElement | null = null;
 
   private edges = new Set<Btn>();
   private held = new Set<string>();
@@ -60,6 +73,62 @@ export class Input {
     window.addEventListener('keyup', (e) => this.held.delete(e.code));
     window.addEventListener('blur', () => this.held.clear());
   }
+
+  /** 绑定触摸：整块 BRAKE 区按压力度随距离/时长上升，GAS 区常开，其余区域点按=确认 */
+  attachTouch(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
+    const active = new Map<number, { zone: 'brake' | 'gas' | 'tap'; x: number; y: number; depth: number }>();
+    const toCanvas = (cx: number, cy: number) => {
+      const r = canvas.getBoundingClientRect();
+      return { x: ((cx - r.left) / r.width) * W, y: ((cy - r.top) / r.height) * H };
+    };
+    const inRect = (p: { x: number; y: number }, z: { x: number; y: number; w: number; h: number }) =>
+      p.x >= z.x && p.x <= z.x + z.w && p.y >= z.y && p.y <= z.y + z.h;
+
+    const onDown = (id: number, cx: number, cy: number) => {
+      this.isTouch = true; this.source = 'touch';
+      this.onUserGesture?.('touch');
+      const p = toCanvas(cx, cy);
+      let zone: 'brake' | 'gas' | 'tap' = 'tap';
+      if (inRect(p, TOUCH_BRAKE)) zone = 'brake';
+      else if (inRect(p, TOUCH_GAS)) zone = 'gas';
+      active.set(id, { zone, x: p.x, y: p.y, depth: zone === 'brake' ? brakeDepth(p.y) : 0 });
+      if (zone === 'tap') this.tapQueue.push(p);
+    };
+    const onMove = (id: number, cx: number, cy: number) => {
+      const t = active.get(id);
+      if (!t || t.zone !== 'brake') return;
+      const p = toCanvas(cx, cy);
+      t.depth = Math.max(t.depth, brakeDepth(p.y)); // 往上拖 = 踩深；也可直接按住
+    };
+    const onUp = (id: number) => active.delete(id);
+    // 制动区：按下即给基础力，往上拖增加；y 越小（越靠顶）越深
+    const brakeDepth = (y: number) => clamp((TOUCH_BRAKE.y + TOUCH_BRAKE.h - y) / TOUCH_BRAKE.h, 0.35, 1);
+
+    this.touchStep = (dt: number) => {
+      let b = 0, g = false;
+      for (const t of active.values()) {
+        if (t.zone === 'brake') b = Math.max(b, t.depth);
+        if (t.zone === 'gas') g = true;
+      }
+      // 平滑：按下快速上升、松开回落，手感接近扳机
+      this.touchBrake = b > 0
+        ? clamp(this.touchBrake + (b - this.touchBrake) * Math.min(1, dt * 12), 0, 1)
+        : clamp(this.touchBrake - 8 * dt, 0, 1);
+      this.touchGas = clamp(this.touchGas + (g ? 4 : -5) * dt, 0, 1);
+    };
+
+    const opt = { passive: false } as AddEventListenerOptions;
+    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); for (const t of e.changedTouches) onDown(t.identifier, t.clientX, t.clientY); }, opt);
+    canvas.addEventListener('touchmove', (e) => { e.preventDefault(); for (const t of e.changedTouches) onMove(t.identifier, t.clientX, t.clientY); }, opt);
+    canvas.addEventListener('touchend', (e) => { e.preventDefault(); for (const t of e.changedTouches) onUp(t.identifier); }, opt);
+    canvas.addEventListener('touchcancel', (e) => { for (const t of e.changedTouches) onUp(t.identifier); }, opt);
+  }
+  private touchStep: (dt: number) => void = () => {};
+
+  /** 取出一次点按（画布坐标），供菜单命中测试；无则返回 null */
+  takeTap() { return this.tapQueue.shift() || null; }
+  hasTap() { return this.tapQueue.length > 0; }
 
   saveCalib() { localStorage.setItem(CALIB_KEY, JSON.stringify(this.calib)); }
 
@@ -106,8 +175,9 @@ export class Input {
       this.stick('up', ay < -0.6, dt, -3);
       this.stick('down', ay > 0.6, dt, -4);
     }
-    this.brake = Math.max(pb, this.kbBrake);
-    this.throttle = Math.max(pt, this.kbThrottle);
+    this.touchStep(dt);
+    this.brake = Math.max(pb, this.kbBrake, this.touchBrake);
+    this.throttle = Math.max(pt, this.kbThrottle, this.touchGas);
     this.flushRumble(now);
   }
 
@@ -160,8 +230,12 @@ export class Input {
       confirm: ['✕', 'Enter'], back: ['○', 'Esc'], pause: ['OPTIONS', 'Esc'], alt: ['△', 'R'],
       up: ['↑', '↑'], down: ['↓', '↓'], left: ['←', '←'], right: ['→', '→'],
     };
+    if (this.source === 'touch') {
+      const tm: Partial<Record<Btn, string>> = { confirm: '点击', back: '点击', up: '点', down: '点', alt: '点击' };
+      if (tm[b]) return tm[b]!;
+    }
     return m[b][pad ? 0 : 1];
   }
-  brakeName() { return this.source === 'pad' && this.padConnected ? 'L2' : '空格'; }
-  gasName() { return this.source === 'pad' && this.padConnected ? 'R2' : '↑'; }
+  brakeName() { return this.source === 'touch' ? '按住 BRAKE' : this.source === 'pad' && this.padConnected ? 'L2' : '空格'; }
+  gasName() { return this.source === 'touch' ? '按住 GAS' : this.source === 'pad' && this.padConnected ? 'R2' : '↑'; }
 }

@@ -47,6 +47,7 @@ export class Game {
     };
     canvas.addEventListener('pointerdown', (e) => {
       this.audio.init();
+      if (e.pointerType === 'touch') return; // 触摸走 Input.takeTap()，避免重复触发
       if (this.state !== 'title') return;
       const r = canvas.getBoundingClientRect();
       const x = ((e.clientX - r.left) / r.width) * W, y = ((e.clientY - r.top) / r.height) * H;
@@ -107,6 +108,7 @@ export class Game {
     const fat = q.get('fatigue'); if (fat) s.pedal.fatigue = Number(fat);
     const tk = q.get('takeover'); if (tk) s.takeover = Number(tk);
     if (q.get('incurve')) s.inCurve = true;
+    if (q.get('touch')) this.input.source = 'touch';
     this.input.brake = b;
     if (scene === 'crash') {
       s.status = 'run';
@@ -134,31 +136,56 @@ export class Game {
     };
 
     switch (this.state) {
-      case 'title':
+      case 'title': {
         nav(this.titleItems().length);
+        const tap = inp.takeTap();
+        if (tap) {
+          const items = this.titleItems();
+          for (let i = 0; i < items.length; i++) {
+            const iy = 420 + i * 62;
+            if (tap.x > 690 && tap.x < 1030 && tap.y > iy - 28 && tap.y < iy + 30) { this.sel = i; this.activateTitle(true); }
+          }
+        }
         if (inp.pressed('confirm')) this.activateTitle(false);
         break;
+      }
       case 'brief':
         if (inp.pressed('back')) { this.go('title'); break; }
-        if (inp.pressed('confirm') && this.st > 0.3) this.startLevel(this.level);
+        if ((inp.pressed('confirm') || inp.takeTap()) && this.st > 0.3) this.startLevel(this.level);
         break;
       case 'play': {
         const s = this.session!;
-        if (inp.pressed('pause') && s.status !== 'crash') { this.go('pause'); this.audio.silence(); break; }
+        // 触摸：点右上角暂停按钮
+        const tap = inp.hasTap() ? inp.takeTap() : null;
+        if (((inp.pressed('pause')) || (tap && tap.x > W - 90 && tap.y < 80)) && s.status !== 'crash') { this.go('pause'); this.audio.silence(); break; }
         s.update(dt, inp, { audio: this.audio, input: inp });
         this.audio.drive({ speed: s.van.v, throttle: s.throttle, force: s.pedal.force, locked: s.van.locked, temp: s.van.temp, rain: false, active: s.status !== 'crash' });
         if (s.status === 'done' && s.doneT > 2.2) this.finishResult(true);
         break;
       }
-      case 'pause':
+      case 'pause': {
         nav(PAUSE_ITEMS.length);
         if (inp.pressed('back') && this.st > 0.1) { this.state = 'play'; break; }
+        const tap = inp.takeTap();
+        if (tap) {
+          for (let i = 0; i < PAUSE_ITEMS.length; i++) {
+            const y = 320 + i * 70;
+            if (tap.x > 500 && tap.x < 780 && tap.y > y - 30 && tap.y < y + 30) this.sel = i;
+            else continue;
+            if (this.sel === 0) this.state = 'play';
+            else if (this.sel === 1) this.startLevel(this.level.endless ? this.newEndless() : this.level);
+            else { this.go('title'); this.session = null; }
+            break;
+          }
+          break;
+        }
         if (inp.pressed('confirm')) {
           if (this.sel === 0) this.state = 'play';
           else if (this.sel === 1) this.startLevel(this.level.endless ? this.newEndless() : this.level);
           else { this.go('title'); this.session = null; }
         }
         break;
+      }
       case 'crash': {
         const c = this.crash!;
         this.audio.silence();
@@ -168,17 +195,20 @@ export class Game {
           // 全程唯一一次震动：撞上的那一下
           if (cue === 'p4') { this.audio.crash(); this.input.pulse(1, 1, 650); }
         });
-        if (inp.pressed('confirm')) c.skip();
+        if (inp.pressed('confirm') || inp.takeTap()) c.skip();
         break;
       }
       case 'result': {
         const r = this.result!;
+        inp.takeTap(); // 丢弃进入结算瞬间的残留点按
         if (this.st < 0.6) break;
         if (inp.pressed('back')) { this.go('title'); break; }
+        const tap = this.st > 0.8 ? inp.hasTap() : false;
         if (r.success && !r.endless) {
-          if (inp.pressed('confirm')) { this.level = this.newEndless(); this.go('brief'); }
+          if (inp.pressed('confirm') || tap) { inp.takeTap(); this.level = this.newEndless(); this.go('brief'); }
           else if (inp.pressed('alt')) this.startLevel(r.level);
-        } else if (inp.pressed('confirm') || inp.pressed('alt')) {
+        } else if (inp.pressed('confirm') || inp.pressed('alt') || tap) {
+          inp.takeTap();
           this.startLevel(r.endless ? this.newEndless() : r.level);
         }
         break;
